@@ -12,6 +12,8 @@ import {
 } from 'firebase/firestore'
 import { firestore } from '../firebase/firestore'
 import type { Sale } from '../types/sale'
+import type { DashboardInterval } from '../types/dashboard'
+import { getDashboardPeriodBounds } from '../utils/dashboardMetrics'
 
 const PAGE_SIZE = 250
 
@@ -37,11 +39,9 @@ function mapSale(saleDocument: QueryDocumentSnapshot): Sale {
   }
 }
 
-export async function getDashboardSales(companyId: string, userId: string, now = new Date()): Promise<Sale[]> {
+export async function getDashboardSales(companyId: string, userId: string, period: DashboardInterval, now = new Date(), customRange?: { start: Date; end: Date }): Promise<Sale[]> {
   const salesCollection = collection(firestore, 'companies', companyId, 'sales')
-  const yearStart = new Date(now.getFullYear(), 0, 1)
-  const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-  const queryStart = previousMonthStart < yearStart ? previousMonthStart : yearStart
+  const { queryStart, queryEnd } = getDashboardPeriodBounds(period, now, customRange)
   const sales: Sale[] = []
   let cursor: QueryDocumentSnapshot | undefined
 
@@ -49,7 +49,7 @@ export async function getDashboardSales(companyId: string, userId: string, now =
     const constraints: QueryConstraint[] = [
     where('userId', '==', userId),
     where('soldAt', '>=', Timestamp.fromDate(queryStart)),
-    where('soldAt', '<=', Timestamp.fromDate(now)),
+    where('soldAt', period === 'custom' ? '<' : '<=', Timestamp.fromDate(queryEnd)),
     orderBy('soldAt', 'desc'),
     ]
     if (cursor) constraints.push(startAfter(cursor))

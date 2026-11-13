@@ -12,6 +12,7 @@ interface SalesHistoryProps {
   userId: string
   refreshKey?: number
   containerClassName?: string
+  initialFilters?: SaleFilters
 }
 
 function formatSaleDate(sale: Sale) {
@@ -85,7 +86,7 @@ function summarizeSales(sales: Sale[]): SaleTotals {
   }), { amountCents: 0, commissionCents: 0, count: 0 })
 }
 
-export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, containerClassName = 'profile-card sales-history-card' }: SalesHistoryProps) {
+export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, containerClassName = 'profile-card sales-history-card', initialFilters = {} }: SalesHistoryProps) {
   const [sales, setSales] = useState<Sale[]>([])
   const [totals, setTotals] = useState<SaleTotals | null>(null)
   const [cursor, setCursor] = useState<QueryDocumentSnapshot | null>(null)
@@ -99,7 +100,7 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
   const [exportError, setExportError] = useState('')
   const [draftStart, setDraftStart] = useState('')
   const [draftEnd, setDraftEnd] = useState('')
-  const [filters, setFilters] = useState<SaleFilters>({})
+  const [filters, setFilters] = useState<SaleFilters>(initialFilters)
   const [filterError, setFilterError] = useState('')
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [editValues, setEditValues] = useState<SaleFormValues | null>(null)
@@ -319,6 +320,7 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
           </div>
           <label className="field-label">Valor da venda (R$)<input inputMode="decimal" value={editValues.amount} onChange={(event) => setEditValues({ ...editValues, amount: event.target.value })} />{editErrors.amount && <span className="field-error">{editErrors.amount}</span>}</label>
           <label className="field-label">Comissão (%)<input inputMode="decimal" value={editValues.commissionRate} onChange={(event) => setEditValues({ ...editValues, commissionRate: event.target.value })} />{editErrors.commissionRate && <span className="field-error">{editErrors.commissionRate}</span>}</label>
+          <label className="field-label">Observação <span className="field-optional">(opcional)</span><textarea rows={3} maxLength={500} placeholder="Detalhes sobre esta venda" value={editValues.notes ?? ''} onChange={(event) => setEditValues({ ...editValues, notes: event.target.value })} />{editErrors.notes && <span className="field-error">{editErrors.notes}</span>}</label>
           {editError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{editError}</p>}
           <button className="primary-button" type="submit" disabled={savingEdit}>{savingEdit ? 'Salvando…' : 'Salvar alterações'}</button>
         </form>

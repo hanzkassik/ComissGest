@@ -325,3 +325,32 @@ test('permite excluir somente a própria venda', async () => {
   await assertSucceeds(deleteDoc(doc(db, 'companies', companyId, 'sales', 'sale-alice')))
   await assertFails(deleteDoc(doc(db, 'companies', companyId, 'sales', 'sale-bob')))
 })
+
+test('permite salvar a própria preferência de dashboard na empresa e bloqueia outros usuários', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  await seedCompany('bob', 'company-bob')
+  const aliceDb = testEnvironment.authenticatedContext('alice').firestore()
+  const preference = {
+    visibleIndicators: ['period-summary', 'commission-rate-chart', 'commission-rate-commission'],
+    indicatorOrder: [
+      'period-summary', 'average-commission', 'average-commission-rate',
+      'average-sale', 'commission-rate-chart', 'commission-rate-details',
+      'commission-rate-commission', 'sales-evolution',
+    ],
+    updatedAt: serverTimestamp(),
+  }
+
+  await assertSucceeds(setDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'alice'), preference))
+  await assertSucceeds(getDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'alice')))
+  await assertFails(getDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'bob')))
+  await assertFails(setDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'bob'), preference))
+  await assertFails(setDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'alice'), {
+    ...preference,
+    visibleIndicators: ['private-data'],
+  }))
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'companies', 'company-bob', 'dashboardPreferences', 'alice'), preference)
+  })
+  await assertFails(getDoc(doc(aliceDb, 'companies', 'company-bob', 'dashboardPreferences', 'alice')))
+})

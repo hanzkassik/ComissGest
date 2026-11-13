@@ -1,11 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { ArrowLeft, CheckCircle2, KeyRound, LogOut, Mail, Save, ShieldCheck, UserRound } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, KeyRound, Mail, Save, ShieldCheck, UserRound } from 'lucide-react'
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BrandMark } from '../../components/BrandMark'
-import { ThemeToggle } from '../../components/ThemeToggle'
+import { AccountMenu } from '../../components/AccountMenu'
 import { FormField } from '../../components/FormField'
 import { useAuth } from '../../hooks/useAuth'
 import { useCompany } from '../../hooks/useCompany'
@@ -13,7 +13,6 @@ import {
   changePassword,
   getAuthErrorMessage,
   requestEmailChange,
-  signOutCurrentUser,
 } from '../../services/authService'
 import { saveProfile } from '../../services/accountService'
 import {
@@ -141,15 +140,7 @@ export function ProfilePage() {
         <BrandMark />
         <div className="topbar-user">
           <button className="quiet-button profile-back-button" type="button" onClick={() => navigate(returnTo)}><ArrowLeft size={15} /> Voltar</button>
-          <span className="topbar-email">{currentUser.email}</span>
-          <ThemeToggle />
-          <button className="quiet-button" type="button" onClick={() => {
-            void signOutCurrentUser().catch((error: unknown) => {
-              setProfileFeedback({ kind: 'error', text: getAuthErrorMessage(error) })
-            })
-          }}>
-            <LogOut size={15} /> Sair
-          </button>
+          <AccountMenu />
         </div>
       </header>
 

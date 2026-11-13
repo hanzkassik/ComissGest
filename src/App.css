@@ -280,6 +280,19 @@
 .dashboard-account-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px;padding-top:8px;border-top:1px solid #edf1ee}
 .dashboard-account-footer .theme-toggle{min-height:36px;padding-inline:9px;font-size:11px}
 .dashboard-account-footer .dashboard-account-action{color:#8b4b43}
+.app-navigation-menu>summary{display:grid;width:44px;min-width:44px;height:42px;place-items:center;gap:0;padding:0;border-radius:12px;line-height:0}
+.app-navigation-menu>summary .app-menu-icon-open,.app-navigation-menu>summary .app-menu-icon-close{flex:none;color:#345044}
+.app-navigation-menu>summary .app-menu-icon-close{display:none}
+.app-navigation-menu[open]>summary .app-menu-icon-open{display:none}
+.app-navigation-menu[open]>summary .app-menu-icon-close{display:block}
+.app-navigation-menu>summary .dashboard-user-avatar{margin-left:2px}
+.app-navigation-links{display:grid;gap:3px;padding:9px 0;border-bottom:1px solid #edf1ee}
+.app-navigation-links a{display:flex;min-height:39px;align-items:center;gap:10px;padding:0 9px;border-radius:8px;color:#52665b;text-decoration:none;font-size:12px;font-weight:600}
+.app-navigation-links a:hover,.app-navigation-links a.is-current{color:#145d43;background:#f1f8f4}
+:root[data-theme='dark'] .app-navigation-menu>summary .app-menu-icon-open,:root[data-theme='dark'] .app-navigation-menu>summary .app-menu-icon-close{color:#c8d7e9}
+:root[data-theme='dark'] .app-navigation-links{border-color:#35445a}
+:root[data-theme='dark'] .app-navigation-links a{color:#c8d7e9}
+:root[data-theme='dark'] .app-navigation-links a:hover,:root[data-theme='dark'] .app-navigation-links a.is-current{color:#c7e0ff;background:#1d2d42}
 .dashboard-period-caption{max-width:68%;line-height:1.4;text-align:right}
 .dashboard-period-changes{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}
 .dashboard-change{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:5px;padding:7px 8px;border-radius:8px;color:#75837b;background:#f6f8f7;font-size:10px}
@@ -298,11 +311,14 @@
 .dashboard-mobile-sale-button{display:none}
 
 @media(max-width:720px){
+  .topbar-user{width:auto;justify-content:flex-end;margin-left:auto}
+  .app-navigation-menu>summary{min-height:42px}
+  .app-navigation-menu .dashboard-account-popover{right:0}
   .dashboard-page>.topbar{flex-wrap:nowrap;gap:8px;padding-inline:14px}
   .dashboard-page>.topbar>.brand-lockup{flex:1}
   .dashboard-page .topbar-user{width:auto;justify-content:flex-end;flex-wrap:nowrap;gap:0}
   .dashboard-heading-actions .dashboard-new-sale{display:none}
-  .dashboard-account-menu>summary{min-height:40px;padding-right:8px;gap:7px}
+  .dashboard-account-menu>summary{min-height:40px}
   .dashboard-user-name{max-width:120px;font-size:11px}
   .dashboard-account-popover{right:-2px}
   .dashboard-content{padding-bottom:calc(100px + env(safe-area-inset-bottom))}
@@ -577,6 +593,141 @@
 :root[data-theme='dark'] .sale-actions-popover button:hover{background:#202d3d}
 :root[data-theme='dark'] .sale-edit-modal .field-label{color:#d3deec}
 :root[data-theme='dark'] .sale-edit-modal .field-label input{border-color:#35445a;color:#e5edf7;background:#0e141c}
+.sale-edit-modal .field-label textarea{width:100%;resize:vertical;padding:11px;border:1px solid #dce5df;border-radius:10px;color:#1b2b25;background:#fff;font:inherit;font-size:13px;line-height:1.5}
+.sale-edit-modal .field-label textarea:focus{border-color:var(--brand-primary);outline:0;box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-primary) 15%,transparent)}
+.sale-edit-modal .field-optional{color:#829088;font-weight:400}
+.dashboard-rate-panel{margin-bottom:17px}
+.dashboard-rate-panel>.dashboard-panel-heading{margin-bottom:16px}
+.dashboard-rate-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px}
+.dashboard-rate-card{min-width:0;padding:14px;border:1px solid #e1e9e4;border-radius:12px;background:#fbfcfb}
+.dashboard-rate-card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dashboard-rate-card-heading strong{color:#2563a6;font-size:17px;font-weight:750}
+.dashboard-rate-card-heading span{color:#829088;font-size:11px}
+.dashboard-rate-values{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:13px;padding-top:11px;border-top:1px solid #e9efeb}
+.dashboard-rate-values>div{display:grid;gap:5px;min-width:0}
+.dashboard-rate-values span{color:#829088;font-size:10px}
+.dashboard-rate-values strong{overflow:hidden;color:#415346;font-size:13px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+.dashboard-rate-values .is-commission strong{color:#176346;font-size:15px}
+.dashboard-rate-empty{padding:20px 12px;color:#829088;font-size:12px;text-align:center}
+.sale-edit-modal .field-label textarea::placeholder{color:#a4afa9}
+:root[data-theme='dark'] .sale-edit-modal .field-label textarea{border-color:#35445a;color:#e5edf7;background:#0e141c}
+:root[data-theme='dark'] .sale-edit-modal .field-label textarea::placeholder,:root[data-theme='dark'] .sale-edit-modal .field-optional{color:#9aaabd}
+:root[data-theme='dark'] .dashboard-rate-card{border-color:#2c3a4d;background:#151e29}
+:root[data-theme='dark'] .dashboard-rate-card-heading strong{color:#8fc3ff}
+:root[data-theme='dark'] .dashboard-rate-card-heading span,:root[data-theme='dark'] .dashboard-rate-values span,:root[data-theme='dark'] .dashboard-rate-empty{color:#9aaabd}
+:root[data-theme='dark'] .dashboard-rate-values{border-color:#29394d}
+:root[data-theme='dark'] .dashboard-rate-values strong{color:#d3deec}
+:root[data-theme='dark'] .dashboard-rate-values .is-commission strong{color:#8fc3ff}
+@media(max-width:560px){.dashboard-rate-grid{grid-template-columns:1fr}.dashboard-rate-card{padding:12px}.dashboard-rate-values{gap:8px}}
+
+.dashboard-period-filter{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:0 0 16px;padding:11px 13px;border:1px solid #e1e9e4;border-radius:12px;background:#fff}
+.dashboard-period-filter-label{width:100%;color:#61736a;font-size:11px;font-weight:700}
+.dashboard-period-segments{display:flex;max-width:100%;gap:5px;overflow-x:auto;padding:4px;border:1px solid #dfe8e2;border-radius:10px;background:#f0f4f7;scrollbar-width:thin}
+.dashboard-period-segments button{min-height:35px;flex:none;padding:0 13px;border:1px solid transparent;border-radius:7px;color:#526579;background:transparent;cursor:pointer;font:inherit;font-size:11px;font-weight:650;white-space:nowrap;transition:color 150ms ease,background 150ms ease,box-shadow 150ms ease}
+.dashboard-period-segments button:hover{color:var(--brand-text);background:#e3ebf3}
+.dashboard-period-segments button.is-selected{border-color:var(--brand-primary);color:var(--brand-on-primary);background:var(--brand-primary);box-shadow:0 1px 4px color-mix(in srgb,var(--brand-primary) 24%,transparent)}
+.dashboard-period-filter-caption{flex:1;color:#829088;font-size:11px}
+.dashboard-period-filter button{min-height:36px;font-size:11px}
+.dashboard-settings-button{color:#275a91}
+.dashboard-settings-saved,.dashboard-settings-inline-error{margin:0 0 13px;color:#24744c;font-size:12px}
+.dashboard-settings-inline-error{color:#a34740}
+.dashboard-widgets-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:12px}
+.dashboard-widget{min-width:0}
+.dashboard-widget-period-summary,.dashboard-widget-commission-rate-chart,.dashboard-widget-commission-rate-details,.dashboard-widget-commission-rate-commission,.dashboard-widget-sales-evolution{grid-column:1/-1}
+.dashboard-period-summary{height:100%;padding:17px 19px;border:1px solid #e1e9e4;border-radius:15px;background:#fff;box-shadow:0 8px 24px rgba(20,54,40,.035)}
+.dashboard-period-summary h2{margin:12px 0;color:#20332b;font-size:15px;font-weight:700}
+.dashboard-period-summary-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.dashboard-period-summary-values>div{display:grid;gap:5px;min-width:0;padding:10px 12px;border:1px solid #e8eeea;border-radius:10px;background:#fafcfb}
+.dashboard-period-summary-values span{color:#829088;font-size:10px}
+.dashboard-period-summary-values strong{overflow:hidden;color:#344b3f;font-size:15px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}
+.dashboard-period-summary-values .is-primary{border-color:#d6ece0;background:#f4fbf7}
+.dashboard-period-summary-values .is-primary strong{color:#176346;font-size:17px}
+.dashboard-period-changes{display:flex;gap:8px;margin-top:10px}
+.dashboard-period-summary .dashboard-change{flex:1}
+.dashboard-widget-average-commission .dashboard-metric-card,.dashboard-widget-average-commission-rate .dashboard-metric-card,.dashboard-widget-average-sale .dashboard-metric-card{height:100%;padding:12px;column-gap:7px}
+.dashboard-widget-average-commission .dashboard-metric-icon,.dashboard-widget-average-commission-rate .dashboard-metric-icon,.dashboard-widget-average-sale .dashboard-metric-icon{width:28px;height:28px}
+.dashboard-widget-average-commission .dashboard-metric-card strong,.dashboard-widget-average-commission-rate .dashboard-metric-card strong,.dashboard-widget-average-sale .dashboard-metric-card strong{font-size:16px}
+.dashboard-widget-average-commission .dashboard-metric-card small,.dashboard-widget-average-commission-rate .dashboard-metric-card small,.dashboard-widget-average-sale .dashboard-metric-card small{font-size:9px}
+.dashboard-widget-commission-rate-chart .dashboard-rate-panel,.dashboard-widget-commission-rate-details .dashboard-rate-panel,.dashboard-widget-commission-rate-commission .dashboard-rate-commission-panel,.dashboard-widget-sales-evolution .dashboard-chart-panel{margin-bottom:0}
+.dashboard-rate-chart-scroll{max-height:470px;overflow:auto;margin-bottom:12px}
+.dashboard-rate-chart{min-width:270px}
+.dashboard-rate-commission-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:7px}
+.dashboard-rate-commission-row{display:flex;min-height:41px;align-items:center;justify-content:space-between;gap:12px;padding:8px 11px;border:1px solid #e5ece7;border-radius:9px;background:#fbfcfb}
+.dashboard-rate-commission-row strong{color:var(--brand-text);font-size:12px;font-weight:750}
+.dashboard-rate-commission-row span{color:var(--brand-text);font-size:13px;font-weight:750;text-align:right}
+.dashboard-settings-modal{max-height:calc(100vh - 32px);overflow:auto}
+.dashboard-settings-list{display:grid;gap:7px;max-height:min(52vh,430px);overflow:auto;margin:18px 0;padding:0;list-style:none}
+.dashboard-settings-list li{display:flex;min-height:48px;align-items:center;gap:12px;padding:7px 8px 7px 11px;border:1px solid #e5ece7;border-radius:10px;background:#fbfcfb}
+.dashboard-settings-list li>label{display:flex;min-width:0;flex:1;align-items:center;gap:9px;color:#344b3f;font-size:12px;font-weight:600;cursor:pointer}
+.dashboard-settings-list input{width:16px;height:16px;flex:none;accent-color:#347fca}
+.dashboard-settings-order{display:flex;gap:5px}
+.dashboard-settings-order .quiet-button{width:32px;min-height:32px;justify-content:center;padding:0}
+.dashboard-settings-order .quiet-button:disabled{opacity:.42;cursor:not-allowed}
+.dashboard-settings-modal>.primary-button{width:100%}
+.dashboard-settings-error{margin:8px 0;color:#a34740;font-size:11px;line-height:1.5}
+.dashboard-custom-date-fields{display:flex;align-items:center;gap:8px}
+.dashboard-custom-date-fields label{display:grid;gap:4px;color:#61736a;font-size:10px;font-weight:650}
+.dashboard-custom-date-fields input{min-height:36px;max-width:165px;padding:0 9px;border:1px solid #dfe8e2;border-radius:8px;color:#344b3f;background:#fff;font:inherit;font-size:11px}
+.dashboard-custom-date-fields input:focus{border-color:var(--brand-primary);outline:0;box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-primary) 18%,transparent)}
+:root[data-theme='dark'] .dashboard-period-filter{border-color:#29394d;background:#121923}
+:root[data-theme='dark'] .dashboard-period-filter-label,:root[data-theme='dark'] .dashboard-settings-button{color:#c8d7e9}
+:root[data-theme='dark'] .dashboard-period-segments{border-color:#35445a;background:#0e141c}
+:root[data-theme='dark'] .dashboard-period-segments button{color:#aebdd0}
+:root[data-theme='dark'] .dashboard-period-segments button:hover{color:#bfdbfe;background:#1c2b3e}
+:root[data-theme='dark'] .dashboard-period-segments button.is-selected{border-color:var(--brand-primary);color:var(--brand-on-primary);background:var(--brand-primary);box-shadow:0 1px 5px rgba(0,0,0,.35)}
+:root[data-theme='dark'] .dashboard-period-filter-caption{color:#9aaabd}
+:root[data-theme='dark'] .dashboard-custom-date-fields label{color:#c8d7e9}
+:root[data-theme='dark'] .dashboard-custom-date-fields input{border-color:#35445a;color:#e5edf7;background:#0e141c}
+:root[data-theme='dark'] .dashboard-period-summary{border-color:#293648;background:#121923;box-shadow:0 8px 26px rgba(0,0,0,.24)}
+:root[data-theme='dark'] .dashboard-period-summary h2{color:#e5edf7}
+:root[data-theme='dark'] .dashboard-period-summary-values>div{border-color:#29394d;background:#151e29}
+:root[data-theme='dark'] .dashboard-period-summary-values span{color:#9aaabd}
+:root[data-theme='dark'] .dashboard-period-summary-values strong{color:#d3deec}
+:root[data-theme='dark'] .dashboard-period-summary-values .is-primary{border-color:#345477;background:#14263a}
+:root[data-theme='dark'] .dashboard-period-summary-values .is-primary strong{color:#8fc3ff}
+:root[data-theme='dark'] .dashboard-settings-list li{border-color:#29394d;background:#151e29}
+:root[data-theme='dark'] .dashboard-settings-list li>label{color:#d3deec}
+:root[data-theme='dark'] .dashboard-settings-order .quiet-button{border-color:#35445a;color:#d3deec;background:#17212d}
+:root[data-theme='dark'] .dashboard-rate-chart .recharts-cartesian-grid line{stroke:#29394d}
+:root[data-theme='dark'] .dashboard-rate-chart .recharts-cartesian-axis-tick text{fill:#9aaabd}
+:root[data-theme='dark'] .dashboard-rate-commission-row{border-color:#29394d;background:#151e29}
+:root[data-theme='dark'] .dashboard-rate-commission-row strong,:root[data-theme='dark'] .dashboard-rate-commission-row span{color:#8fc3ff}
+@media(max-width:720px){
+  .dashboard-period-filter{align-items:stretch;gap:8px;padding:10px}
+  .dashboard-period-filter-label{width:100%}
+  .dashboard-period-segments{width:100%}
+  .dashboard-period-segments button{flex:1;padding-inline:9px;font-size:10px}
+  .dashboard-period-filter-caption{display:flex;align-items:center;justify-content:flex-start;flex:1}
+  .dashboard-period-filter button{flex:1;justify-content:center;padding-inline:7px}
+  .dashboard-widgets-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .dashboard-widget-period-summary,.dashboard-widget-commission-rate-chart,.dashboard-widget-commission-rate-details,.dashboard-widget-commission-rate-commission,.dashboard-widget-sales-evolution{grid-column:1/-1}
+  .dashboard-period-summary{padding:14px}
+  .dashboard-period-summary-values{gap:6px}
+  .dashboard-period-summary-values>div{padding:9px 8px}
+  .dashboard-period-summary-values strong{font-size:12px}
+  .dashboard-period-summary-values .is-primary strong{font-size:14px}
+  .dashboard-period-changes{gap:6px}
+  .dashboard-widget-average-commission .dashboard-metric-card,.dashboard-widget-average-commission-rate .dashboard-metric-card,.dashboard-widget-average-sale .dashboard-metric-card{grid-template-columns:25px 1fr;padding:9px 8px}
+  .dashboard-widget-average-commission .dashboard-metric-icon,.dashboard-widget-average-commission-rate .dashboard-metric-icon,.dashboard-widget-average-sale .dashboard-metric-icon{width:24px;height:24px}
+  .dashboard-widget-average-commission .dashboard-metric-card strong,.dashboard-widget-average-commission-rate .dashboard-metric-card strong,.dashboard-widget-average-sale .dashboard-metric-card strong{font-size:13px}
+  .dashboard-widget-average-commission .dashboard-metric-card small,.dashboard-widget-average-commission-rate .dashboard-metric-card small,.dashboard-widget-average-sale .dashboard-metric-card small{font-size:8px}
+  .dashboard-settings-modal{padding:19px}
+  .dashboard-rate-chart-scroll{max-height:390px}
+}
+@media(max-width:560px){
+  .dashboard-widgets-grid{grid-template-columns:minmax(0,1fr)}
+  .dashboard-widgets-grid>.dashboard-widget{grid-column:1/-1;width:100%;min-width:0}
+  .dashboard-widgets-grid>.dashboard-widget .dashboard-metric-card{width:100%;min-height:96px;grid-template-columns:32px minmax(0,1fr);column-gap:10px;row-gap:5px;padding:13px}
+  .dashboard-widgets-grid>.dashboard-widget .dashboard-metric-card strong,
+  .dashboard-widgets-grid>.dashboard-widget .dashboard-metric-card small,
+  .dashboard-widgets-grid>.dashboard-widget .dashboard-metric-card .dashboard-metric-label{min-width:0;overflow-wrap:anywhere;white-space:normal}
+  .dashboard-period-summary-values{grid-template-columns:minmax(0,1fr)}
+  .dashboard-period-summary-values>div{min-height:68px;padding:12px}
+  .dashboard-period-summary-values strong,.dashboard-period-summary-values .is-primary strong{font-size:16px;white-space:normal;overflow-wrap:anywhere}
+  .dashboard-custom-date-fields{width:100%}
+  .dashboard-custom-date-fields label{flex:1;min-width:0}
+  .dashboard-custom-date-fields input{width:100%;max-width:none}
+}
 :root[data-theme='dark'] button:focus-visible,
 :root[data-theme='dark'] a:focus-visible,
 :root[data-theme='dark'] input:focus-visible{outline-color:rgba(96,165,250,.55)}

@@ -1,11 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { ArrowLeft, Building2, CheckCircle2, Palette, Save } from 'lucide-react'
+import { Building2, CheckCircle2, Palette, Save } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useEffect, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import { BrandMark } from '../../components/BrandMark'
-import { ThemeToggle } from '../../components/ThemeToggle'
+import { AccountMenu } from '../../components/AccountMenu'
 import { FormField } from '../../components/FormField'
 import { useAuth } from '../../hooks/useAuth'
 import { useCompany } from '../../hooks/useCompany'
@@ -61,8 +61,7 @@ export function CompanySettingsPage() {
       <header className="topbar">
         <BrandMark />
         <div className="topbar-user">
-          <ThemeToggle />
-          <Link className="quiet-button" to="/empresas"><ArrowLeft size={15} /> Voltar às empresas</Link>
+          <AccountMenu />
         </div>
       </header>
 

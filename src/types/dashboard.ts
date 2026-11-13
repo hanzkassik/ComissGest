@@ -1,9 +1,42 @@
-export type DashboardInterval = 'day' | 'week' | 'month' | 'year'
+export type DashboardInterval = 'day' | 'week' | 'month' | 'year' | 'custom'
+export type DashboardPeriod = DashboardInterval
+
+export const dashboardIndicatorIds = [
+  'period-summary',
+  'average-commission',
+  'average-commission-rate',
+  'average-sale',
+  'commission-rate-chart',
+  'commission-rate-details',
+  'commission-rate-commission',
+  'sales-evolution',
+] as const
+
+export type DashboardIndicatorId = typeof dashboardIndicatorIds[number]
+
+export interface DashboardPreferences {
+  visibleIndicators: DashboardIndicatorId[]
+  indicatorOrder: DashboardIndicatorId[]
+}
 
 export interface DashboardPeriodSummary {
   salesCents: number
   commissionCents: number
   count: number
+}
+
+export interface DashboardPeriodBounds {
+  currentStart: Date
+  currentEnd: Date
+  previousStart: Date
+  previousEnd: Date
+  queryStart: Date
+  queryEnd: Date
+}
+
+export interface DashboardCustomRange {
+  start: Date
+  end: Date
 }
 
 export interface DashboardPeriodComparison {
@@ -25,13 +58,16 @@ export interface DashboardChartPoint {
   commissionCents: number
 }
 
+export interface CommissionRateSummary {
+  commissionRateBps: number
+  salesCount: number
+  salesCents: number
+  commissionCents: number
+}
+
 export interface DashboardOverview {
-  today: DashboardPeriodSummary
-  week: DashboardPeriodSummary
-  month: DashboardPeriodSummary
-  dayComparison: DashboardPeriodComparison
-  weekComparison: DashboardPeriodComparison
-  monthComparison: DashboardPeriodComparison
+  currentPeriod: DashboardPeriodSummary
+  periodComparison: DashboardPeriodComparison
   keyMetrics: DashboardKeyMetrics
   chart: DashboardChartPoint[]
 }

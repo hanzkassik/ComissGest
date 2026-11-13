@@ -147,6 +147,42 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      match /dashboardPreferences/{userId} {
+        function validDashboardPreference(data) {
+          let allowedIndicators = [
+            'period-summary',
+            'average-commission',
+            'average-commission-rate',
+            'average-sale',
+            'commission-rate-chart',
+            'commission-rate-details',
+            'commission-rate-commission',
+            'sales-evolution'
+          ];
+          return data.keys().hasAll(['visibleIndicators', 'indicatorOrder', 'updatedAt'])
+            && data.keys().hasOnly(['visibleIndicators', 'indicatorOrder', 'updatedAt'])
+            && data.visibleIndicators is list
+            && data.visibleIndicators.size() > 0
+            && data.visibleIndicators.size() <= allowedIndicators.size()
+            && data.visibleIndicators.hasOnly(allowedIndicators)
+            && data.visibleIndicators.toSet().size() == data.visibleIndicators.size()
+            && data.indicatorOrder is list
+            && data.indicatorOrder.size() == allowedIndicators.size()
+            && data.indicatorOrder.hasAll(allowedIndicators)
+            && data.indicatorOrder.hasOnly(allowedIndicators)
+            && data.indicatorOrder.toSet().size() == allowedIndicators.size()
+            && data.updatedAt == request.time;
+        }
+
+        allow get: if isCompanyMember(companyId) && signedIn() && request.auth.uid == userId;
+        allow list: if false;
+        allow create, update: if isCompanyMember(companyId)
+          && signedIn()
+          && request.auth.uid == userId
+          && validDashboardPreference(request.resource.data);
+        allow delete: if false;
+      }
+
       match /sales/{saleId} {
         function hasValidCommission(amountCents, rateBps, commissionCents) {
           let centsRemainder = amountCents % 10000;

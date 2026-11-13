@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   deleteDoc,
   getDocs,
@@ -77,6 +78,7 @@ export async function updateSale(companyId: string, saleId: string, values: Sale
     commissionRateBps,
     commissionCents,
     soldAt: Timestamp.fromDate(dateWithLocalTime(values.soldOn, values.soldTime)),
+    notes: values.notes?.trim() ? values.notes.trim() : deleteField(),
   })
 }
 
