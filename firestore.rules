@@ -1,0 +1,212 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function companyPath(companyId) {
+      return /databases/$(database)/documents/companies/$(companyId);
+    }
+
+    function memberPath(companyId, userId) {
+      return /databases/$(database)/documents/companies/$(companyId)/members/$(userId);
+    }
+
+    function userMembershipPath(userId, companyId) {
+      return /databases/$(database)/documents/users/$(userId)/memberships/$(companyId);
+    }
+
+    function isValidBrandColors(colors) {
+      return colors is map
+        && colors.keys().hasAll(['primary'])
+        && colors.keys().hasOnly(['primary'])
+        && colors.primary is string
+        && colors.primary.matches('^#[0-9a-fA-F]{6}$');
+    }
+
+    function isCompanyMember(companyId) {
+      return signedIn() && exists(memberPath(companyId, request.auth.uid));
+    }
+
+    function isCompanyOwner(companyId) {
+      return isCompanyMember(companyId)
+        && get(memberPath(companyId, request.auth.uid)).data.role == 'owner';
+    }
+
+    function isValidOwnerBootstrap(companyId) {
+      return signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && existsAfter(memberPath(companyId, request.auth.uid))
+        && getAfter(memberPath(companyId, request.auth.uid)).data.uid == request.auth.uid
+        && getAfter(memberPath(companyId, request.auth.uid)).data.companyId == companyId
+        && getAfter(memberPath(companyId, request.auth.uid)).data.role == 'owner'
+        && existsAfter(userMembershipPath(request.auth.uid, companyId))
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.companyId == companyId
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.role == 'owner'
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.companyName == request.resource.data.name
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.cnpj == request.resource.data.cnpj
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.brandColors == request.resource.data.brandColors;
+    }
+
+    match /users/{userId} {
+      allow read, create, update: if signedIn() && request.auth.uid == userId;
+      allow delete: if false;
+
+      match /memberships/{companyId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasAll(['companyId', 'companyName', 'cnpj', 'brandColors', 'role', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['companyId', 'companyName', 'cnpj', 'brandColors', 'role', 'createdAt'])
+          && request.resource.data.companyId == companyId
+          && request.resource.data.companyName is string
+          && request.resource.data.companyName.size() >= 2
+          && (request.resource.data.cnpj == null
+            || (request.resource.data.cnpj is string && request.resource.data.cnpj.size() == 14))
+          && isValidBrandColors(request.resource.data.brandColors)
+          && request.resource.data.role == 'owner'
+          && request.resource.data.createdAt == request.time
+          && existsAfter(companyPath(companyId))
+          && getAfter(companyPath(companyId)).data.ownerUid == request.auth.uid
+          && getAfter(companyPath(companyId)).data.name == request.resource.data.companyName
+          && getAfter(companyPath(companyId)).data.cnpj == request.resource.data.cnpj
+          && getAfter(companyPath(companyId)).data.brandColors == request.resource.data.brandColors
+          && existsAfter(memberPath(companyId, userId))
+          && getAfter(memberPath(companyId, userId)).data.role == 'owner';
+        allow update: if signedIn()
+          && request.auth.uid == userId
+          && resource.data.role == 'owner'
+          && request.resource.data.role == 'owner'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['companyName', 'cnpj', 'brandColors'])
+          && request.resource.data.companyName == getAfter(companyPath(companyId)).data.name
+          && request.resource.data.cnpj == getAfter(companyPath(companyId)).data.cnpj
+          && request.resource.data.brandColors == getAfter(companyPath(companyId)).data.brandColors
+          && getAfter(companyPath(companyId)).data.ownerUid == request.auth.uid;
+        allow delete: if false;
+      }
+    }
+
+    match /companies/{companyId} {
+      allow get: if isCompanyMember(companyId);
+      allow list: if false;
+      allow create: if request.resource.data.keys().hasAll([
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 100
+        && (request.resource.data.cnpj == null
+          || (request.resource.data.cnpj is string && request.resource.data.cnpj.size() == 14))
+        && isValidBrandColors(request.resource.data.brandColors)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && isValidOwnerBootstrap(companyId);
+      allow delete: if false;
+      allow update: if isCompanyOwner(companyId)
+        && request.resource.data.keys().hasAll([
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'cnpj', 'brandColors', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 100
+        && (request.resource.data.cnpj == null
+          || (request.resource.data.cnpj is string && request.resource.data.cnpj.size() == 14))
+        && isValidBrandColors(request.resource.data.brandColors)
+        && request.resource.data.updatedAt == request.time
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.companyName == request.resource.data.name
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.cnpj == request.resource.data.cnpj
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.brandColors == request.resource.data.brandColors;
+
+      match /members/{userId} {
+        allow get, list: if isCompanyOwner(companyId)
+          || (signedIn() && request.auth.uid == userId);
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasAll(['uid', 'companyId', 'role', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'companyId', 'role', 'createdAt'])
+          && request.resource.data.uid == userId
+          && request.resource.data.companyId == companyId
+          && request.resource.data.role == 'owner'
+          && request.resource.data.createdAt == request.time
+          && existsAfter(companyPath(companyId))
+          && getAfter(companyPath(companyId)).data.ownerUid == request.auth.uid
+          && existsAfter(userMembershipPath(userId, companyId))
+          && getAfter(userMembershipPath(userId, companyId)).data.role == 'owner';
+        allow update, delete: if false;
+      }
+
+      match /sales/{saleId} {
+        function hasValidCommission(amountCents, rateBps, commissionCents) {
+          let centsRemainder = amountCents % 10000;
+          let wholeUnits = (amountCents - centsRemainder) / 10000;
+          let partialCommission = commissionCents - (wholeUnits * rateBps);
+          let roundedPartialBase = (centsRemainder * rateBps) + 5000;
+          return partialCommission >= 0
+            && (partialCommission * 10000) <= roundedPartialBase
+            && ((partialCommission + 1) * 10000) > roundedPartialBase;
+        }
+
+        function hasValidSaleData(data) {
+          return data.keys().hasAll([
+              'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt'
+            ])
+            && data.keys().hasOnly([
+              'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt', 'notes'
+            ])
+            && data.userId == request.auth.uid
+            && data.amountCents is int
+            && data.amountCents > 0
+            && data.amountCents <= 9007199254740991
+            && data.commissionRateBps is int
+            && data.commissionRateBps >= 0
+            && data.commissionRateBps <= 10000
+            && data.commissionCents is int
+            && data.commissionCents >= 0
+            && data.commissionCents <= 9007199254740991
+            && data.soldAt is timestamp
+            && data.createdAt is timestamp
+            && (!data.keys().hasAny(['notes'])
+              || (data.notes is string && data.notes.size() <= 500))
+            && hasValidCommission(data.amountCents, data.commissionRateBps, data.commissionCents);
+        }
+
+        allow get, list: if isCompanyMember(companyId)
+          && resource.data.userId == request.auth.uid;
+        allow create: if isCompanyMember(companyId)
+          && hasValidSaleData(request.resource.data)
+          && request.resource.data.soldAt <= request.time
+          && request.resource.data.createdAt == request.time;
+        allow update: if isCompanyMember(companyId)
+          && resource.data.userId == request.auth.uid
+          && hasValidSaleData(request.resource.data)
+          && request.resource.data.soldAt <= request.time
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'notes']);
+        allow delete: if isCompanyMember(companyId)
+          && resource.data.userId == request.auth.uid;
+      }
+
+      match /invitations/{invitationId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
