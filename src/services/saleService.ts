@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   deleteDoc,
   getDocs,
@@ -44,6 +45,7 @@ function mapSaleDocument(saleDoc: QueryDocumentSnapshot): Sale {
     soldAt: data.soldAt as Timestamp,
     createdAt: data.createdAt as Timestamp,
     ...(typeof data.notes === 'string' ? { notes: data.notes } : {}),
+    ...(typeof data.productId === 'string' ? { productId: data.productId } : {}),
   }
 }
 
@@ -65,6 +67,7 @@ export async function createSale(
     soldAt: Timestamp.fromDate(dateWithLocalTime(values.soldOn, values.soldTime)),
     createdAt: serverTimestamp(),
     ...(values.notes?.trim() ? { notes: values.notes.trim() } : {}),
+    ...(values.productId ? { productId: values.productId } : {}),
   })
 }
 
@@ -77,6 +80,8 @@ export async function updateSale(companyId: string, saleId: string, values: Sale
     commissionRateBps,
     commissionCents,
     soldAt: Timestamp.fromDate(dateWithLocalTime(values.soldOn, values.soldTime)),
+    notes: values.notes?.trim() ? values.notes.trim() : deleteField(),
+    productId: values.productId ? values.productId : deleteField(),
   })
 }
 

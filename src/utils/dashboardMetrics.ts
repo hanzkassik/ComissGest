@@ -1,4 +1,4 @@
-import type { DashboardChartPoint, DashboardInterval, DashboardOverview, DashboardPeriodSummary } from '../types/dashboard'
+import type { CommissionRateSummary, DashboardChartPoint, DashboardCustomRange, DashboardInterval, DashboardOverview, DashboardPeriodBounds, DashboardPeriodSummary } from '../types/dashboard'
 import type { Sale } from '../types/sale'
 
 function startOfDay(date: Date) {
@@ -13,6 +13,43 @@ function startOfWeek(date: Date) {
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function startOfYear(date: Date) {
+  return new Date(date.getFullYear(), 0, 1)
+}
+
+export function getDashboardPeriodBounds(period: DashboardInterval, now = new Date(), customRange?: DashboardCustomRange): DashboardPeriodBounds {
+  let currentStart: Date
+  let previousStart: Date
+
+  if (period === 'custom' && customRange) {
+    currentStart = startOfDay(customRange.start)
+    const inclusiveEnd = startOfDay(customRange.end)
+    inclusiveEnd.setDate(inclusiveEnd.getDate() + 1)
+    const duration = inclusiveEnd.getTime() - currentStart.getTime()
+    const previousEnd = new Date(currentStart)
+    const previousStart = new Date(currentStart.getTime() - duration)
+    return { currentStart, currentEnd: inclusiveEnd, previousStart, previousEnd, queryStart: previousStart, queryEnd: inclusiveEnd }
+  } else if (period === 'day') {
+    currentStart = startOfDay(now)
+    previousStart = new Date(currentStart)
+    previousStart.setDate(previousStart.getDate() - 1)
+  } else if (period === 'week') {
+    currentStart = startOfWeek(now)
+    previousStart = new Date(currentStart)
+    previousStart.setDate(previousStart.getDate() - 7)
+  } else if (period === 'month') {
+    currentStart = startOfMonth(now)
+    previousStart = new Date(currentStart.getFullYear(), currentStart.getMonth() - 1, 1)
+  } else {
+    currentStart = startOfYear(now)
+    previousStart = new Date(currentStart.getFullYear() - 1, 0, 1)
+  }
+
+  const elapsed = now.getTime() - currentStart.getTime()
+  const previousEnd = new Date(Math.min(previousStart.getTime() + elapsed, currentStart.getTime()))
+  return { currentStart, currentEnd: now, previousStart, previousEnd, queryStart: previousStart, queryEnd: now }
 }
 
 function summarize(sales: Sale[], start: Date, end: Date): DashboardPeriodSummary {
@@ -31,11 +68,29 @@ function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function makeChart(sales: Sale[], interval: DashboardInterval, now: Date): DashboardChartPoint[] {
+function makeChart(sales: Sale[], interval: DashboardInterval, now: Date, customRange?: DashboardCustomRange): DashboardChartPoint[] {
   const buckets: DashboardChartPoint[] = []
   const monthLabel = new Intl.DateTimeFormat('pt-BR', { month: 'short' })
 
-  if (interval === 'day') {
+  if (interval === 'custom' && customRange) {
+    const start = startOfDay(customRange.start)
+    const end = startOfDay(customRange.end)
+    const dayCount = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1
+    if (dayCount <= 62) {
+      for (let offset = 0; offset < dayCount; offset += 1) {
+        const day = new Date(start)
+        day.setDate(day.getDate() + offset)
+        buckets.push({ key: dateKey(day), label: day.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }), salesCents: 0, commissionCents: 0 })
+      }
+    } else {
+      const month = new Date(start.getFullYear(), start.getMonth(), 1)
+      const last = new Date(end.getFullYear(), end.getMonth(), 1)
+      while (month <= last) {
+        buckets.push({ key: `${month.getFullYear()}-${month.getMonth()}`, label: monthLabel.format(month).replace('.', ''), salesCents: 0, commissionCents: 0 })
+        month.setMonth(month.getMonth() + 1)
+      }
+    }
+  } else if (interval === 'day') {
     for (let hour = 0; hour < 24; hour += 1) {
       buckets.push({ key: String(hour), label: `${String(hour).padStart(2, '0')}h`, salesCents: 0, commissionCents: 0 })
     }
@@ -69,7 +124,12 @@ function makeChart(sales: Sale[], interval: DashboardInterval, now: Date): Dashb
   for (const sale of sales) {
     const date = sale.soldAt.toDate()
     let key: string
-    if (interval === 'day') {
+    if (interval === 'custom' && customRange) {
+      const start = startOfDay(customRange.start)
+      const end = startOfDay(customRange.end)
+      const dayCount = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1
+      key = dayCount <= 62 ? dateKey(date) : `${date.getFullYear()}-${date.getMonth()}`
+    } else if (interval === 'day') {
       if (dateKey(date) !== dateKey(now)) continue
       key = String(date.getHours())
     } else if (interval === 'week') {
@@ -89,27 +149,10 @@ function makeChart(sales: Sale[], interval: DashboardInterval, now: Date): Dashb
   return buckets
 }
 
-export function buildDashboardOverview(sales: Sale[], now = new Date()): DashboardOverview {
-  const currentDay = startOfDay(now)
-  const nextDay = new Date(currentDay)
-  nextDay.setDate(nextDay.getDate() + 1)
-  const currentWeek = startOfWeek(now)
-  const nextWeek = new Date(currentWeek)
-  nextWeek.setDate(nextWeek.getDate() + 7)
-  const currentMonth = startOfMonth(now)
-  const previousDay = new Date(currentDay)
-  previousDay.setDate(previousDay.getDate() - 1)
-  const previousWeek = new Date(currentWeek)
-  previousWeek.setDate(previousWeek.getDate() - 7)
-  const previousMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
-  const elapsedDay = now.getTime() - currentDay.getTime()
-  const elapsedWeek = now.getTime() - currentWeek.getTime()
-  const elapsedMonth = now.getTime() - currentMonth.getTime()
-  const previousDaySummary = summarize(sales, previousDay, new Date(previousDay.getTime() + elapsedDay))
-  const previousWeekSummary = summarize(sales, previousWeek, new Date(previousWeek.getTime() + elapsedWeek))
-  const previousMonthEnd = new Date(Math.min(previousMonth.getTime() + elapsedMonth, currentMonth.getTime()))
-  const previousMonthSummary = summarize(sales, previousMonth, previousMonthEnd)
-  const currentMonthSummary = summarize(sales, currentMonth, now)
+export function buildDashboardOverview(sales: Sale[], period: DashboardInterval, now = new Date(), customRange?: DashboardCustomRange): DashboardOverview {
+  const bounds = getDashboardPeriodBounds(period, now, customRange)
+  const currentSummary = summarize(sales, bounds.currentStart, bounds.currentEnd)
+  const previousSummary = summarize(sales, bounds.previousStart, bounds.previousEnd)
 
   function percentChange(current: number, previous: number) {
     if (previous === 0) return current === 0 ? 0 : null
@@ -124,28 +167,63 @@ export function buildDashboardOverview(sales: Sale[], now = new Date()): Dashboa
   }
 
   return {
-    today: summarize(sales, currentDay, now),
-    week: summarize(sales, currentWeek, now),
-    month: currentMonthSummary,
-    dayComparison: compare(summarize(sales, currentDay, now), previousDaySummary),
-    weekComparison: compare(summarize(sales, currentWeek, now), previousWeekSummary),
-    monthComparison: compare(currentMonthSummary, previousMonthSummary),
+    currentPeriod: currentSummary,
+    periodComparison: compare(currentSummary, previousSummary),
     keyMetrics: {
-      averageCommissionRate: currentMonthSummary.salesCents > 0
-        ? (currentMonthSummary.commissionCents / currentMonthSummary.salesCents) * 100
+      averageCommissionRate: currentSummary.salesCents > 0
+        ? (currentSummary.commissionCents / currentSummary.salesCents) * 100
         : 0,
-      averageCommissionCents: currentMonthSummary.count > 0
-        ? Math.round(currentMonthSummary.commissionCents / currentMonthSummary.count)
+      averageCommissionCents: currentSummary.count > 0
+        ? Math.round(currentSummary.commissionCents / currentSummary.count)
         : 0,
-      averageSaleCents: currentMonthSummary.count > 0
-        ? Math.round(currentMonthSummary.salesCents / currentMonthSummary.count)
+      averageSaleCents: currentSummary.count > 0
+        ? Math.round(currentSummary.salesCents / currentSummary.count)
         : 0,
-      salesCount: currentMonthSummary.count,
+      salesCount: currentSummary.count,
     },
-    chart: makeChart(sales, 'week', now),
+    chart: makeChart(sales, period, now, customRange),
   }
 }
 
 export function buildDashboardChart(sales: Sale[], interval: DashboardInterval, now = new Date()) {
   return makeChart(sales, interval, now)
+}
+
+export function buildCommissionRateSummary(sales: Sale[], now = new Date()): CommissionRateSummary[] {
+  const bounds = getDashboardPeriodBounds('month', now)
+  return buildCommissionRateSummaryForRange(sales, bounds.currentStart, bounds.currentEnd)
+}
+
+export function buildCommissionRateSummaryForRange(sales: Sale[], start: Date, end: Date): CommissionRateSummary[] {
+  const summaries = new Map<number, CommissionRateSummary>()
+
+  for (const sale of sales) {
+    const soldAt = sale.soldAt.toDate()
+    if (soldAt < start || soldAt >= end) continue
+    const summary = summaries.get(sale.commissionRateBps) ?? {
+      commissionRateBps: sale.commissionRateBps,
+      salesCount: 0,
+      salesCents: 0,
+      commissionCents: 0,
+    }
+    summary.salesCount += 1
+    summary.salesCents += sale.amountCents
+    summary.commissionCents += sale.commissionCents
+    summaries.set(sale.commissionRateBps, summary)
+  }
+
+  return [...summaries.values()].sort((left, right) => left.commissionRateBps - right.commissionRateBps)
+}
+
+export function buildCommissionRateChart(summaries: CommissionRateSummary[]) {
+  const defaultRates = Array.from({ length: 19 }, (_, index) => 100 + index * 50)
+  const observedRates = summaries.map((summary) => summary.commissionRateBps)
+  const rates = [...new Set([...defaultRates, ...observedRates])].sort((left, right) => left - right)
+  const counts = new Map(summaries.map((summary) => [summary.commissionRateBps, summary.salesCount]))
+
+  return rates.map((rate) => ({
+    rateBps: rate,
+    label: `${(rate / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`,
+    salesCount: counts.get(rate) ?? 0,
+  }))
 }

@@ -1,13 +1,14 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowUpRight, Building2, Check, CircleAlert, MoreHorizontal, Plus, Settings2, UsersRound, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
 import { AccountMenu } from '../../components/AccountMenu'
 import { BrandMark } from '../../components/BrandMark'
 import { FormField } from '../../components/FormField'
+import { LoadingSkeleton } from '../../components/LoadingSkeleton'
 import { useCompany } from '../../hooks/useCompany'
-import { companySchema, type CompanyFormValues } from '../../schemas/companySchemas'
+import { companySchema, DEFAULT_MONTHLY_GOAL_REMINDER_MESSAGE, type CompanyFormInput, type CompanyFormValues } from '../../schemas/companySchemas'
 
 function formatCnpj(cnpj: string | null) {
   if (!cnpj) return 'CNPJ não informado'
@@ -19,10 +20,11 @@ export function CompaniesPage() {
   const { companies, activeCompany, loading, error, createCompany, selectCompany, refreshCompanies } = useCompany()
   const [formMessage, setFormMessage] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<CompanyFormValues>({
+  const { register, handleSubmit, control, formState: { errors, isSubmitting }, reset } = useForm<CompanyFormInput, unknown, CompanyFormValues>({
     resolver: zodResolver(companySchema),
-    defaultValues: { name: '', cnpj: '' },
+    defaultValues: { name: '', cnpj: '', askForMonthlyGoalIfMissing: true, monthlyGoalReminderMessage: DEFAULT_MONTHLY_GOAL_REMINDER_MESSAGE },
   })
+  const askForMonthlyGoalIfMissing = useWatch({ control, name: 'askForMonthlyGoalIfMissing' })
 
   async function onCreate(values: CompanyFormValues) {
     setFormMessage('')
@@ -81,7 +83,7 @@ export function CompaniesPage() {
             </div>
 
             {loading ? (
-              <div className="company-loading">Carregando suas empresas…</div>
+              <LoadingSkeleton variant="company-list" page={false} rows={2} />
             ) : error ? (
               <div className="company-notice error"><CircleAlert size={17} />
                 <span>{error}</span>
@@ -167,6 +169,14 @@ export function CompaniesPage() {
                 registration={register('cnpj')}
                 error={errors.cnpj?.message}
               />
+              <label className="company-goal-reminder-toggle">
+                <input type="checkbox" {...register('askForMonthlyGoalIfMissing')} />
+                <span><strong>Solicitar cadastro de meta quando não existir</strong><small>O aviso aparecerá no dashboard da empresa quando você ainda não tiver meta no mês atual.</small></span>
+              </label>
+              {askForMonthlyGoalIfMissing && <label className="company-goal-reminder-message">Mensagem do aviso
+                <textarea rows={3} maxLength={500} {...register('monthlyGoalReminderMessage')} />
+                {errors.monthlyGoalReminderMessage?.message && <span className="field-error">{errors.monthlyGoalReminderMessage.message}</span>}
+              </label>}
               {formMessage && <div className="inline-message error" role="alert">{formMessage}</div>}
               <button className="primary-button" type="submit" disabled={isSubmitting}>
                 {isSubmitting ? 'Criando…' : 'Criar empresa'} <Plus size={16} />

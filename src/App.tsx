@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import { CompanyProvider } from './contexts/CompanyContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { LoadingSkeleton } from './components/LoadingSkeleton'
 import { useCompany } from './hooks/useCompany'
 import './App.css'
 
@@ -14,17 +15,19 @@ const ProfilePage = lazy(() => import('./pages/profile/ProfilePage').then((modul
 const CompaniesPage = lazy(() => import('./pages/companies/CompaniesPage').then((module) => ({ default: module.CompaniesPage })))
 const CompanySettingsPage = lazy(() => import('./pages/companies/CompanySettingsPage').then((module) => ({ default: module.CompanySettingsPage })))
 const SalesPage = lazy(() => import('./pages/sales/SalesPage').then((module) => ({ default: module.SalesPage })))
+const ProductsPage = lazy(() => import('./pages/products/ProductsPage').then((module) => ({ default: module.ProductsPage })))
+const GoalsPage = lazy(() => import('./pages/goals/GoalsPage').then((module) => ({ default: module.GoalsPage })))
 const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 
 function LegacyDashboardRedirect() {
   const { activeCompany, loading } = useCompany()
-  if (loading) return <div className="loading-screen">Carregando empresa…</div>
+  if (loading) return <LoadingSkeleton variant="app" />
   return <Navigate to={activeCompany ? `/empresas/${activeCompany.companyId}` : '/empresas'} replace />
 }
 
 function LegacySalesRedirect() {
   const { activeCompany, loading } = useCompany()
-  if (loading) return <div className="loading-screen">Carregando empresa…</div>
+  if (loading) return <LoadingSkeleton variant="app" />
   return <Navigate to={activeCompany ? `/empresas/${activeCompany.companyId}/vendas` : '/empresas'} replace />
 }
 
@@ -34,7 +37,7 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <CompanyProvider>
-            <Suspense fallback={<div className="loading-screen">Carregando o ComissGest…</div>}>
+            <Suspense fallback={<LoadingSkeleton variant="app" />}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/cadastro" element={<RegisterPage />} />
@@ -42,7 +45,9 @@ function App() {
                 <Route path="/empresas" element={<ProtectedRoute><CompaniesPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/configuracoes" element={<ProtectedRoute><CompanySettingsPage /></ProtectedRoute>} />
+                <Route path="/empresas/:companyId/metas" element={<ProtectedRoute><GoalsPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/vendas" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
+                <Route path="/empresas/:companyId/produtos" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
                 <Route path="/vendas" element={<ProtectedRoute><LegacySalesRedirect /></ProtectedRoute>} />
                 <Route path="/dashboard" element={<ProtectedRoute><LegacyDashboardRedirect /></ProtectedRoute>} />
                 <Route path="/perfil" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />

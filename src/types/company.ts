@@ -5,5 +5,8 @@ export interface CompanyMembership {
   companyName: string
   cnpj: string | null
   brandPrimary: string
+  brandDarkPrimary: string
+  askForMonthlyGoalIfMissing: boolean
+  monthlyGoalReminderMessage: string
   role: CompanyRole
 }

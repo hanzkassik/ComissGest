@@ -29,6 +29,7 @@ export const saleSchema = z.object({
     'O percentual deve estar entre 0 e 100%.',
   ),
   notes: z.string().trim().max(500, 'A observação pode ter até 500 caracteres.').optional(),
+  productId: z.string().max(128, 'Produto inválido.').optional(),
 }).superRefine((values, context) => {
   if (values.soldOn === toLocalDateInputValue() && values.soldTime > new Date().toTimeString().slice(0, 5)) {
     context.addIssue({ code: 'custom', path: ['soldTime'], message: 'A data e hora da venda não podem ser futuras.' })

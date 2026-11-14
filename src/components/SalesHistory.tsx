@@ -2,6 +2,9 @@ import { CalendarDays, CircleAlert, ClipboardList, Download, MoreHorizontal, Pen
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { QueryDocumentSnapshot } from 'firebase/firestore'
 import { deleteSale, getSalesForExport, getSalesPage, getSalesTotals, updateSale } from '../services/saleService'
+import { LoadingSkeleton } from './LoadingSkeleton'
+import { ProductSelectField } from './ProductSelectField'
+import { getCompanyProducts } from '../services/productService'
 import { saleSchema, type SaleFormValues } from '../schemas/saleSchemas'
 import type { Sale, SaleFilters, SaleTotals } from '../types/sale'
 import { formatBRLFromCents, parseLocalDateStart, toLocalDateInputValue } from '../utils/currency'
@@ -12,6 +15,7 @@ interface SalesHistoryProps {
   userId: string
   refreshKey?: number
   containerClassName?: string
+  initialFilters?: SaleFilters
 }
 
 function formatSaleDate(sale: Sale) {
@@ -32,6 +36,7 @@ function saleFormValues(sale: Sale): SaleFormValues {
     amount: `${Math.floor(sale.amountCents / 100)},${String(sale.amountCents % 100).padStart(2, '0')}`,
     commissionRate: `${Math.floor(sale.commissionRateBps / 100)},${String(sale.commissionRateBps % 100).padStart(2, '0')}`,
     notes: sale.notes ?? '',
+    productId: sale.productId ?? '',
   }
 }
 
@@ -85,8 +90,9 @@ function summarizeSales(sales: Sale[]): SaleTotals {
   }), { amountCents: 0, commissionCents: 0, count: 0 })
 }
 
-export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, containerClassName = 'profile-card sales-history-card' }: SalesHistoryProps) {
+export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, containerClassName = 'profile-card sales-history-card', initialFilters = {} }: SalesHistoryProps) {
   const [sales, setSales] = useState<Sale[]>([])
+  const [productNames, setProductNames] = useState<Record<string, string>>({})
   const [totals, setTotals] = useState<SaleTotals | null>(null)
   const [cursor, setCursor] = useState<QueryDocumentSnapshot | null>(null)
   const [hasMore, setHasMore] = useState(false)
@@ -99,7 +105,7 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
   const [exportError, setExportError] = useState('')
   const [draftStart, setDraftStart] = useState('')
   const [draftEnd, setDraftEnd] = useState('')
-  const [filters, setFilters] = useState<SaleFilters>({})
+  const [filters, setFilters] = useState<SaleFilters>(initialFilters)
   const [filterError, setFilterError] = useState('')
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [editValues, setEditValues] = useState<SaleFormValues | null>(null)
@@ -146,6 +152,14 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
   useEffect(() => {
     void Promise.resolve().then(loadFirstPage)
   }, [loadFirstPage, refreshKey])
+
+  useEffect(() => {
+    let active = true
+    void getCompanyProducts(companyId).then((products) => {
+      if (active) setProductNames(Object.fromEntries(products.map((product) => [product.productId, product.name])))
+    }).catch((error: unknown) => console.error('Falha ao carregar nomes de produtos para o histórico:', error))
+    return () => { active = false }
+  }, [companyId, refreshKey])
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -280,16 +294,17 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
       {totalsError && <p className="sales-history-total-error" role="status"><CircleAlert size={14} />{totalsError}</p>}
       {salesError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{salesError}<button type="button" onClick={() => void loadFirstPage()}>Tentar novamente</button></p>}
       {exportError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{exportError}</p>}
-      {loading ? <div className="sales-loading">Carregando vendas…</div> : sales.length === 0 ? (
+      {loading ? <LoadingSkeleton variant="sales-history" page={false} /> : sales.length === 0 ? (
         <div className="sales-empty-history"><span><CalendarDays size={20} /></span><h3>Nenhuma venda encontrada</h3><p>Não há vendas para o período selecionado.</p></div>
       ) : (
         <>
-          <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Valor</th><th>Comissão</th><th><span className="visually-hidden">Ações</span></th></tr></thead><tbody>
-            {sales.map((sale) => <tr key={sale.saleId}><td><strong>{formatSaleDate(sale)}</strong>{sale.notes && <span>{sale.notes}</span>}</td><td>{formatBRLFromCents(sale.amountCents)}</td><td><strong>{formatBRLFromCents(sale.commissionCents)}</strong><span>{formatRate(sale.commissionRateBps)}</span></td><td>{saleActions(sale)}</td></tr>)}
+          <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Produto</th><th>Valor</th><th>Comissão</th><th><span className="visually-hidden">Ações</span></th></tr></thead><tbody>
+            {sales.map((sale) => <tr key={sale.saleId}><td><strong>{formatSaleDate(sale)}</strong>{sale.notes && <span>{sale.notes}</span>}</td><td>{sale.productId ? productNames[sale.productId] ?? 'Produto indisponível' : '—'}</td><td>{formatBRLFromCents(sale.amountCents)}</td><td><strong>{formatBRLFromCents(sale.commissionCents)}</strong><span>{formatRate(sale.commissionRateBps)}</span></td><td>{saleActions(sale)}</td></tr>)}
           </tbody></table></div>
           <div className="sales-history-mobile-list">
             {sales.map((sale) => <article className="sales-history-mobile-card" key={sale.saleId}>
               <div className="sales-history-mobile-heading"><strong>{formatSaleDate(sale)}</strong><span>{formatRate(sale.commissionRateBps)}</span></div>
+              {sale.productId && <p className="sales-history-product-name">{productNames[sale.productId] ?? 'Produto indisponível'}</p>}
               <div className="sales-history-mobile-commission"><span>Comissão</span><strong>{formatBRLFromCents(sale.commissionCents)}</strong></div>
               <div className="sales-history-mobile-amount"><span>Venda</span><strong>{formatBRLFromCents(sale.amountCents)}</strong></div>
               {sale.notes && <p>{sale.notes}</p>}
@@ -317,8 +332,10 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
             <label className="field-label">Data da venda<input type="date" max={toLocalDateInputValue()} value={editValues.soldOn} onChange={(event) => setEditValues({ ...editValues, soldOn: event.target.value })} />{editErrors.soldOn && <span className="field-error">{editErrors.soldOn}</span>}</label>
             <label className="field-label">Hora da venda<input type="time" value={editValues.soldTime} onChange={(event) => setEditValues({ ...editValues, soldTime: event.target.value })} />{editErrors.soldTime && <span className="field-error">{editErrors.soldTime}</span>}</label>
           </div>
+          <ProductSelectField companyId={companyId} value={editValues.productId} onChange={(value) => setEditValues({ ...editValues, productId: value })} onProductCreated={(product) => setProductNames((current) => ({ ...current, [product.productId]: product.name }))} />
           <label className="field-label">Valor da venda (R$)<input inputMode="decimal" value={editValues.amount} onChange={(event) => setEditValues({ ...editValues, amount: event.target.value })} />{editErrors.amount && <span className="field-error">{editErrors.amount}</span>}</label>
           <label className="field-label">Comissão (%)<input inputMode="decimal" value={editValues.commissionRate} onChange={(event) => setEditValues({ ...editValues, commissionRate: event.target.value })} />{editErrors.commissionRate && <span className="field-error">{editErrors.commissionRate}</span>}</label>
+          <label className="field-label">Observação <span className="field-optional">(opcional)</span><textarea rows={3} maxLength={500} placeholder="Detalhes sobre esta venda" value={editValues.notes ?? ''} onChange={(event) => setEditValues({ ...editValues, notes: event.target.value })} />{editErrors.notes && <span className="field-error">{editErrors.notes}</span>}</label>
           {editError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{editError}</p>}
           <button className="primary-button" type="submit" disabled={savingEdit}>{savingEdit ? 'Salvando…' : 'Salvar alterações'}</button>
         </form>

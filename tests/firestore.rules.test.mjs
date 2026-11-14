@@ -24,6 +24,10 @@ import {
 
 const projectId = 'demo-comissgest'
 let testEnvironment
+const goalPromptSettings = {
+  askForMonthlyGoalIfMissing: true,
+  monthlyGoalReminderMessage: 'Você ainda não cadastrou uma meta para este mês. Que tal definir seu objetivo e acompanhar seu progresso?',
+}
 
 before(async () => {
   testEnvironment = await initializeTestEnvironment({
@@ -49,7 +53,8 @@ function makeOwnerBootstrap(db, { uid, companyId, ownerUid = uid }) {
     name: 'Empresa de teste',
     ownerUid,
     cnpj: null,
-    brandColors: { primary: '#187f63' },
+    brandColors: { primary: '#187f63', darkPrimary: '#60a5fa' },
+    ...goalPromptSettings,
     createdAt: timestamp,
     updatedAt: timestamp,
   })
@@ -63,7 +68,8 @@ function makeOwnerBootstrap(db, { uid, companyId, ownerUid = uid }) {
     companyId,
     companyName: 'Empresa de teste',
     cnpj: null,
-    brandColors: { primary: '#187f63' },
+    brandColors: { primary: '#187f63', darkPrimary: '#60a5fa' },
+    ...goalPromptSettings,
     role: 'owner',
     createdAt: timestamp,
   })
@@ -78,7 +84,8 @@ async function seedCompany(uid, companyId) {
       name: 'Empresa de teste',
       ownerUid: uid,
       cnpj: null,
-      brandColors: { primary: '#187f63' },
+      brandColors: { primary: '#187f63', darkPrimary: '#60a5fa' },
+      ...goalPromptSettings,
       createdAt: timestamp,
       updatedAt: timestamp,
     })
@@ -92,7 +99,8 @@ async function seedCompany(uid, companyId) {
       companyId,
       companyName: 'Empresa de teste',
       cnpj: null,
-      brandColors: { primary: '#187f63' },
+      brandColors: { primary: '#187f63', darkPrimary: '#60a5fa' },
+      ...goalPromptSettings,
       role: 'owner',
       createdAt: timestamp,
     })
@@ -127,6 +135,8 @@ test('nega que um proprietário crie uma associação para outro usuário', asyn
   })
   batch.set(doc(db, 'users', 'bob', 'memberships', companyId), {
     companyId, companyName: 'Empresa de teste', cnpj: null,
+      brandColors: { primary: '#187f63', darkPrimary: '#60a5fa' },
+    ...goalPromptSettings,
     role: 'member', createdAt: serverTimestamp(),
   })
   await assertFails(batch.commit())
@@ -167,7 +177,7 @@ test('permite ao proprietário editar dados e identidade visual em lote', async 
   await seedCompany('alice', companyId)
   const db = testEnvironment.authenticatedContext('alice').firestore()
   const batch = writeBatch(db)
-  const brandColors = { primary: '#2563eb' }
+  const brandColors = { primary: '#2563eb', darkPrimary: '#38bdf8' }
   batch.update(doc(db, 'companies', companyId), {
     name: 'Comércio Azul',
     cnpj: '12345678000199',
@@ -184,6 +194,42 @@ test('permite ao proprietário editar dados e identidade visual em lote', async 
   const company = await getDoc(doc(db, 'companies', companyId))
   assert.equal(company.data().name, 'Comércio Azul')
   assert.equal(company.data().brandColors.primary, '#2563eb')
+  assert.equal(company.data().brandColors.darkPrimary, '#38bdf8')
+})
+
+test('permite ao proprietário atualizar a configuração do aviso de meta em lote', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  const db = testEnvironment.authenticatedContext('alice').firestore()
+  const batch = writeBatch(db)
+  const message = 'Defina sua meta para este mês e acompanhe seu progresso.'
+  batch.update(doc(db, 'companies', companyId), {
+    askForMonthlyGoalIfMissing: false,
+    monthlyGoalReminderMessage: message,
+    updatedAt: serverTimestamp(),
+  })
+  batch.update(doc(db, 'users', 'alice', 'memberships', companyId), {
+    askForMonthlyGoalIfMissing: false,
+    monthlyGoalReminderMessage: message,
+  })
+
+  await assertSucceeds(batch.commit())
+})
+
+test('nega configuração de aviso de meta divergente entre empresa e associação', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  const db = testEnvironment.authenticatedContext('alice').firestore()
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'companies', companyId), {
+    askForMonthlyGoalIfMissing: false,
+    updatedAt: serverTimestamp(),
+  })
+  batch.update(doc(db, 'users', 'alice', 'memberships', companyId), {
+    askForMonthlyGoalIfMissing: true,
+  })
+
+  await assertFails(batch.commit())
 })
 
 test('nega atualização com cor inválida ou tentativa de alterar o proprietário', async () => {
@@ -192,10 +238,10 @@ test('nega atualização com cor inválida ou tentativa de alterar o proprietár
   const db = testEnvironment.authenticatedContext('alice').firestore()
   const invalidColor = writeBatch(db)
   invalidColor.update(doc(db, 'companies', companyId), {
-    brandColors: { primary: 'verde' }, updatedAt: serverTimestamp(),
+    brandColors: { primary: '#187f63', darkPrimary: 'azul' }, updatedAt: serverTimestamp(),
   })
   invalidColor.update(doc(db, 'users', 'alice', 'memberships', companyId), {
-    brandColors: { primary: 'verde' },
+    brandColors: { primary: '#187f63', darkPrimary: 'azul' },
   })
   await assertFails(invalidColor.commit())
 
@@ -324,4 +370,67 @@ test('permite excluir somente a própria venda', async () => {
   const db = testEnvironment.authenticatedContext('alice').firestore()
   await assertSucceeds(deleteDoc(doc(db, 'companies', companyId, 'sales', 'sale-alice')))
   await assertFails(deleteDoc(doc(db, 'companies', companyId, 'sales', 'sale-bob')))
+})
+
+test('permite salvar a própria preferência de dashboard na empresa e bloqueia outros usuários', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  await seedCompany('bob', 'company-bob')
+  const aliceDb = testEnvironment.authenticatedContext('alice').firestore()
+  const preference = {
+    visibleIndicators: ['period-summary', 'commission-rate-chart', 'commission-rate-commission'],
+    indicatorOrder: [
+      'period-summary', 'average-commission', 'average-commission-rate',
+      'average-sale', 'commission-rate-chart', 'commission-rate-details',
+      'commission-rate-commission', 'goals-progress', 'sales-evolution',
+    ],
+    updatedAt: serverTimestamp(),
+  }
+
+  await assertSucceeds(setDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'alice'), preference))
+  await assertSucceeds(getDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'alice')))
+  await assertFails(getDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'bob')))
+  await assertFails(setDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'bob'), preference))
+  await assertFails(setDoc(doc(aliceDb, 'companies', companyId, 'dashboardPreferences', 'alice'), {
+    ...preference,
+    visibleIndicators: ['private-data'],
+  }))
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'companies', 'company-bob', 'dashboardPreferences', 'alice'), preference)
+  })
+  await assertFails(getDoc(doc(aliceDb, 'companies', 'company-bob', 'dashboardPreferences', 'alice')))
+})
+
+test('isola metas por usuário, mesmo quando ele é proprietário da empresa', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'companies', companyId, 'members', 'bob'), {
+      uid: 'bob', companyId, role: 'member', createdAt: Timestamp.now(),
+    })
+    await setDoc(doc(db, 'companies', companyId, 'goals', 'goal-alice'), {
+      userId: 'alice', startDate: Timestamp.fromDate(new Date('2026-11-01T00:00:00Z')),
+      endDate: Timestamp.fromDate(new Date('2026-11-30T00:00:00Z')), targetCents: 500000,
+      businessDays: 26, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    })
+  })
+  const aliceDb = testEnvironment.authenticatedContext('alice').firestore()
+  const bobDb = testEnvironment.authenticatedContext('bob').firestore()
+  const bobGoal = {
+    userId: 'bob', startDate: Timestamp.fromDate(new Date('2026-11-01T00:00:00Z')),
+    endDate: Timestamp.fromDate(new Date('2026-11-30T00:00:00Z')), targetCents: 300000,
+    businessDays: 26, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }
+
+  await assertSucceeds(setDoc(doc(bobDb, 'companies', companyId, 'goals', 'goal-bob'), bobGoal))
+  await assertFails(getDoc(doc(aliceDb, 'companies', companyId, 'goals', 'goal-bob')))
+  await assertFails(getDoc(doc(bobDb, 'companies', companyId, 'goals', 'goal-alice')))
+  await assertSucceeds(getDocs(query(collection(aliceDb, 'companies', companyId, 'goals'), where('userId', '==', 'alice'))))
+  await assertSucceeds(getDocs(query(collection(bobDb, 'companies', companyId, 'goals'), where('userId', '==', 'bob'))))
+  await assertFails(setDoc(doc(bobDb, 'companies', companyId, 'goals', 'forged-goal'), { ...bobGoal, userId: 'alice' }))
+  await assertFails(updateDoc(doc(bobDb, 'companies', companyId, 'goals', 'goal-bob'), { targetCents: -10 }))
+  await assertSucceeds(updateDoc(doc(bobDb, 'companies', companyId, 'goals', 'goal-bob'), { targetCents: 400000, updatedAt: serverTimestamp() }))
+  await assertSucceeds(deleteDoc(doc(bobDb, 'companies', companyId, 'goals', 'goal-bob')))
+  await assertFails(deleteDoc(doc(bobDb, 'companies', companyId, 'goals', 'goal-alice')))
 })
