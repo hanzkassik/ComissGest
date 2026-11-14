@@ -1,4 +1,4 @@
-import { BarChart3, Building2, Check, LogOut, Menu, Receipt, Settings2, UserRound, X } from 'lucide-react'
+import { BarChart3, Building2, Check, LogOut, Menu, Package, Receipt, Settings2, Target, UserRound, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -38,6 +38,8 @@ export function AccountMenu({ showCompanySwitcher = true }: AccountMenuProps) {
           {showCompanySwitcher && activeCompany && <>
             <Link className={location.pathname === `/empresas/${activeCompany.companyId}` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><BarChart3 size={16} />Dashboard</Link>
             <Link className={location.pathname === `/empresas/${activeCompany.companyId}/vendas` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/vendas` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/vendas`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Receipt size={16} />Vendas</Link>
+            <Link className={location.pathname === `/empresas/${activeCompany.companyId}/produtos` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/produtos` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/produtos`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Package size={16} />Produtos</Link>
+            <Link className={location.pathname === `/empresas/${activeCompany.companyId}/metas` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/metas` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/metas`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Target size={16} />Metas</Link>
             <Link className={location.pathname === `/empresas/${activeCompany.companyId}/configuracoes` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/configuracoes` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/configuracoes`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Settings2 size={16} />Configurações da empresa</Link>
           </>}
         </nav>

@@ -36,6 +36,7 @@ function mapSale(saleDocument: QueryDocumentSnapshot): Sale {
     soldAt: data.soldAt,
     createdAt: data.createdAt,
     ...(typeof data.notes === 'string' ? { notes: data.notes } : {}),
+    ...(typeof data.productId === 'string' ? { productId: data.productId } : {}),
   }
 }
 
@@ -61,6 +62,28 @@ export async function getDashboardSales(companyId: string, userId: string, perio
     if (!cursor) break
   }
 
+  return sales
+}
+
+export async function getSalesForDateRange(companyId: string, userId: string, start: Date, end: Date): Promise<Sale[]> {
+  const salesCollection = collection(firestore, 'companies', companyId, 'sales')
+  const sales: Sale[] = []
+  let cursor: QueryDocumentSnapshot | undefined
+  while (true) {
+    const constraints: QueryConstraint[] = [
+      where('userId', '==', userId),
+      where('soldAt', '>=', Timestamp.fromDate(start)),
+      where('soldAt', '<', Timestamp.fromDate(end)),
+      orderBy('soldAt', 'desc'),
+    ]
+    if (cursor) constraints.push(startAfter(cursor))
+    constraints.push(limit(PAGE_SIZE))
+    const page = await getDocs(query(salesCollection, ...constraints))
+    sales.push(...page.docs.map(mapSale))
+    if (page.size < PAGE_SIZE) break
+    cursor = page.docs.at(-1)
+    if (!cursor) break
+  }
   return sales
 }
 

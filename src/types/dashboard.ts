@@ -9,6 +9,11 @@ export const dashboardIndicatorIds = [
   'commission-rate-chart',
   'commission-rate-details',
   'commission-rate-commission',
+  'product-sales-values',
+  'product-commissions',
+  'product-sales-chart',
+  'product-commission-chart',
+  'goals-progress',
   'sales-evolution',
 ] as const
 
@@ -60,6 +65,14 @@ export interface DashboardChartPoint {
 
 export interface CommissionRateSummary {
   commissionRateBps: number
+  salesCount: number
+  salesCents: number
+  commissionCents: number
+}
+
+export interface ProductSalesSummary {
+  productId: string | null
+  productName: string
   salesCount: number
   salesCents: number
   commissionCents: number

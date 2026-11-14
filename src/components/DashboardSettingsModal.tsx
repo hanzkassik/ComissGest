@@ -10,6 +10,11 @@ const indicatorLabels: Record<DashboardIndicatorId, string> = {
   'commission-rate-chart': 'Gráfico: quantidade por percentual de comissão',
   'commission-rate-details': 'Detalhamento das vendas por percentual',
   'commission-rate-commission': 'Comissões por percentual',
+  'product-sales-values': 'Vendas por produto: valores e quantidade',
+  'product-commissions': 'Comissões por produto',
+  'product-sales-chart': 'Gráfico: vendas por produto',
+  'product-commission-chart': 'Gráfico: comissões por produto',
+  'goals-progress': 'Metas e progresso',
   'sales-evolution': 'Evolução de vendas e comissões',
 }
 

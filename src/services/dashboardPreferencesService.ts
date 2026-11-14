@@ -26,8 +26,14 @@ function normalizeDashboardPreferences(value: unknown): DashboardPreferences {
     : []
   const uniqueVisible = [...new Set(visible)]
   const uniqueOrder = [...new Set(savedOrder)]
-  const order = [...uniqueOrder, ...defaults.indicatorOrder.filter((id) => !uniqueOrder.includes(id))]
-  return { visibleIndicators: uniqueVisible.length > 0 ? uniqueVisible : defaults.visibleIndicators, indicatorOrder: order }
+  const newlyAddedIndicators = defaults.indicatorOrder.filter((id) => !uniqueOrder.includes(id))
+  const order = [...uniqueOrder]
+  for (const indicatorId of newlyAddedIndicators) {
+    const salesChartIndex = indicatorId === 'product-commission-chart' ? order.indexOf('product-sales-chart') : -1
+    order.splice(salesChartIndex >= 0 ? salesChartIndex + 1 : order.length, 0, indicatorId)
+  }
+  const migratedVisible = [...uniqueVisible, ...newlyAddedIndicators.filter((id) => !uniqueVisible.includes(id))]
+  return { visibleIndicators: migratedVisible.length > 0 ? migratedVisible : defaults.visibleIndicators, indicatorOrder: order }
 }
 
 export async function getDashboardPreferences(companyId: string, userId: string): Promise<DashboardPreferences> {

@@ -9,6 +9,7 @@ export interface Sale {
   soldAt: Timestamp
   createdAt: Timestamp
   notes?: string
+  productId?: string
 }
 
 export interface SaleFilters {

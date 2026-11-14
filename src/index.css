@@ -3,17 +3,56 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     'Segoe UI', sans-serif;
-  color: #17211f;
-  background: #f4f7f6;
+  color: var(--app-text);
+  background: var(--app-background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-optical-sizing: auto;
   font-weight: 400;
-  --brand-primary: #187f63;
-  --brand-on-primary: #ffffff;
-  --brand-text: #082d22;
+  --brand-light-primary: #187f63;
+  --brand-dark-primary: #60a5fa;
+  --brand-light-on-primary: var(--brand-light-primary);
+  --brand-dark-on-primary: var(--brand-dark-primary);
+  --brand-light-text: var(--brand-light-primary);
+  --brand-primary: var(--brand-light-primary);
+  --brand-on-primary: var(--brand-light-on-primary);
+  --brand-text: var(--brand-light-text);
+  --app-background: var(--brand-light-app-background, var(--brand-light-primary));
+  --app-header: var(--brand-light-app-header, var(--brand-light-primary));
+  --app-surface: var(--brand-light-app-surface, var(--brand-light-primary));
+  --app-surface-raised: var(--brand-light-app-surface-raised, var(--brand-light-primary));
+  --app-control: var(--brand-light-app-control, var(--brand-light-primary));
+  --app-border: var(--brand-light-app-border, var(--brand-light-primary));
+  --app-soft: var(--brand-light-app-soft, var(--brand-light-primary));
+  --app-hover: var(--brand-light-app-hover, var(--brand-light-primary));
+  --app-text: var(--brand-light-app-text, var(--brand-light-on-primary));
+  --app-muted-text: var(--brand-light-muted-text, var(--brand-light-on-primary));
+  --brand-chart-secondary: var(--brand-light-chart-secondary, var(--brand-light-primary));
+  background: var(--app-background);
+  --brand-soft: var(--brand-light-brand-soft, var(--brand-light-primary));
+  --brand-border: var(--brand-light-brand-border, var(--brand-light-primary));
+  --brand-hover: var(--brand-light-brand-hover, var(--brand-light-primary));
+  --brand-focus: var(--brand-light-focus, var(--brand-light-primary));
+  --brand-focus-soft: var(--brand-light-focus-soft, var(--brand-light-primary));
+  --brand-shadow: var(--brand-light-shadow, var(--brand-light-primary));
+  --app-overlay: var(--brand-light-overlay, var(--brand-light-primary));
+  --app-placeholder: var(--brand-light-placeholder, var(--brand-light-primary));
+  --status-success: var(--brand-light-status-success, var(--brand-light-primary));
+  --status-success-text: var(--brand-light-status-success-text, var(--brand-light-on-primary));
+  --status-success-soft: var(--brand-light-status-success-soft, var(--brand-light-primary));
+  --status-success-border: var(--brand-light-status-success-border, var(--brand-light-primary));
+  --status-error: var(--brand-light-status-error, var(--brand-light-primary));
+  --status-error-text: var(--brand-light-status-error-text, var(--brand-light-on-primary));
+  --status-error-soft: var(--brand-light-status-error-soft, var(--brand-light-primary));
+  --status-error-border: var(--brand-light-status-error-border, var(--brand-light-primary));
+  --status-warning: var(--brand-light-status-warning, var(--brand-light-primary));
+  --status-warning-text: var(--brand-light-status-warning-text, var(--brand-light-on-primary));
+  --status-warning-soft: var(--brand-light-status-warning-soft, var(--brand-light-primary));
+  --status-warning-border: var(--brand-light-status-warning-border, var(--brand-light-primary));
+  --skeleton-base: var(--brand-light-skeleton-base, var(--brand-light-primary));
+  --skeleton-highlight: var(--brand-light-skeleton-highlight, var(--brand-light-primary));
 }
 
 * { box-sizing: border-box; }
@@ -22,23 +61,61 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  color: var(--app-text);
+  background: var(--app-background);
 }
 
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
 button:focus-visible, a:focus-visible, input:focus-visible {
-  outline: 3px solid rgba(24, 127, 99, 0.25);
+  outline: 3px solid var(--brand-focus);
   outline-offset: 2px;
 }
 
-::selection { color: #fff; background: var(--brand-primary); }
+::selection { color: var(--brand-on-primary); background: var(--brand-primary); }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  color: #e5edf7;
-  background: #090d13;
-  --brand-primary: #60a5fa !important;
-  --brand-on-primary: #08111e !important;
-  --brand-text: #93c5fd !important;
+  color: var(--app-text);
+  background: var(--app-background);
+  --brand-primary: var(--brand-dark-primary);
+  --brand-on-primary: var(--brand-dark-on-primary);
+  --brand-text: var(--brand-dark-text, var(--brand-dark-primary));
+  --brand-soft: var(--brand-dark-brand-soft, var(--brand-dark-primary));
+  --brand-border: var(--brand-dark-brand-border, var(--brand-dark-primary));
+  --brand-hover: var(--brand-dark-brand-hover, var(--brand-dark-primary));
+  --brand-focus: var(--brand-dark-focus, var(--brand-dark-primary));
+  --brand-focus-soft: var(--brand-dark-focus-soft, var(--brand-dark-primary));
+  --brand-shadow: var(--brand-dark-shadow, var(--brand-dark-primary));
+  --app-overlay: var(--brand-dark-overlay, var(--brand-dark-primary));
+  --app-placeholder: var(--brand-dark-placeholder, var(--brand-dark-primary));
+  --status-success: var(--brand-dark-status-success, var(--brand-dark-primary));
+  --status-success-text: var(--brand-dark-status-success-text, var(--brand-dark-on-primary));
+  --status-success-soft: var(--brand-dark-status-success-soft, var(--brand-dark-primary));
+  --status-success-border: var(--brand-dark-status-success-border, var(--brand-dark-primary));
+  --status-error: var(--brand-dark-status-error, var(--brand-dark-primary));
+  --status-error-text: var(--brand-dark-status-error-text, var(--brand-dark-on-primary));
+  --status-error-soft: var(--brand-dark-status-error-soft, var(--brand-dark-primary));
+  --status-error-border: var(--brand-dark-status-error-border, var(--brand-dark-primary));
+  --status-warning: var(--brand-dark-status-warning, var(--brand-dark-primary));
+  --status-warning-text: var(--brand-dark-status-warning-text, var(--brand-dark-on-primary));
+  --status-warning-soft: var(--brand-dark-status-warning-soft, var(--brand-dark-primary));
+  --status-warning-border: var(--brand-dark-status-warning-border, var(--brand-dark-primary));
+  --skeleton-base: var(--brand-dark-skeleton-base, var(--brand-dark-primary));
+  --skeleton-highlight: var(--brand-dark-skeleton-highlight, var(--brand-dark-primary));
+  --brand-focus: var(--brand-dark-focus, var(--brand-dark-primary));
+  --brand-shadow: var(--brand-dark-shadow, var(--brand-dark-primary));
+  --app-overlay: var(--brand-dark-overlay, var(--brand-dark-primary));
+  --app-background: var(--brand-dark-app-background, var(--brand-dark-primary));
+  --app-header: var(--brand-dark-app-header, var(--brand-dark-primary));
+  --app-surface: var(--brand-dark-app-surface, var(--brand-dark-primary));
+  --app-surface-raised: var(--brand-dark-app-surface-raised, var(--brand-dark-primary));
+  --app-control: var(--brand-dark-app-control, var(--brand-dark-primary));
+  --app-border: var(--brand-dark-app-border, var(--brand-dark-primary));
+  --app-soft: var(--brand-dark-app-soft, var(--brand-dark-primary));
+  --app-hover: var(--brand-dark-app-hover, var(--brand-dark-primary));
+  --app-text: var(--brand-dark-app-text, var(--brand-dark-on-primary));
+  --app-muted-text: var(--brand-dark-muted-text, var(--brand-dark-on-primary));
+  --brand-chart-secondary: var(--brand-dark-chart-secondary, var(--brand-dark-primary));
 }

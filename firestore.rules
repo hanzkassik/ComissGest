@@ -14,16 +14,29 @@ service cloud.firestore {
       return /databases/$(database)/documents/companies/$(companyId)/members/$(userId);
     }
 
+    function productPath(companyId, productId) {
+      return /databases/$(database)/documents/companies/$(companyId)/products/$(productId);
+    }
+
     function userMembershipPath(userId, companyId) {
       return /databases/$(database)/documents/users/$(userId)/memberships/$(companyId);
     }
 
     function isValidBrandColors(colors) {
       return colors is map
-        && colors.keys().hasAll(['primary'])
-        && colors.keys().hasOnly(['primary'])
+        && colors.keys().hasAll(['primary', 'darkPrimary'])
+        && colors.keys().hasOnly(['primary', 'darkPrimary'])
         && colors.primary is string
-        && colors.primary.matches('^#[0-9a-fA-F]{6}$');
+        && colors.primary.matches('^#[0-9a-fA-F]{6}$')
+        && colors.darkPrimary is string
+        && colors.darkPrimary.matches('^#[0-9a-fA-F]{6}$');
+    }
+
+    function isValidMonthlyGoalPrompt(data) {
+      return data.askForMonthlyGoalIfMissing is bool
+        && data.monthlyGoalReminderMessage is string
+        && data.monthlyGoalReminderMessage.size() >= 1
+        && data.monthlyGoalReminderMessage.size() <= 500;
     }
 
     function isCompanyMember(companyId) {
@@ -47,7 +60,9 @@ service cloud.firestore {
         && getAfter(userMembershipPath(request.auth.uid, companyId)).data.role == 'owner'
         && getAfter(userMembershipPath(request.auth.uid, companyId)).data.companyName == request.resource.data.name
         && getAfter(userMembershipPath(request.auth.uid, companyId)).data.cnpj == request.resource.data.cnpj
-        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.brandColors == request.resource.data.brandColors;
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.brandColors == request.resource.data.brandColors
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.askForMonthlyGoalIfMissing == request.resource.data.askForMonthlyGoalIfMissing
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.monthlyGoalReminderMessage == request.resource.data.monthlyGoalReminderMessage;
     }
 
     match /users/{userId} {
@@ -58,14 +73,15 @@ service cloud.firestore {
         allow read: if signedIn() && request.auth.uid == userId;
         allow create: if signedIn()
           && request.auth.uid == userId
-          && request.resource.data.keys().hasAll(['companyId', 'companyName', 'cnpj', 'brandColors', 'role', 'createdAt'])
-          && request.resource.data.keys().hasOnly(['companyId', 'companyName', 'cnpj', 'brandColors', 'role', 'createdAt'])
+          && request.resource.data.keys().hasAll(['companyId', 'companyName', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage', 'role', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['companyId', 'companyName', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage', 'role', 'createdAt'])
           && request.resource.data.companyId == companyId
           && request.resource.data.companyName is string
           && request.resource.data.companyName.size() >= 2
           && (request.resource.data.cnpj == null
             || (request.resource.data.cnpj is string && request.resource.data.cnpj.size() == 14))
           && isValidBrandColors(request.resource.data.brandColors)
+          && isValidMonthlyGoalPrompt(request.resource.data)
           && request.resource.data.role == 'owner'
           && request.resource.data.createdAt == request.time
           && existsAfter(companyPath(companyId))
@@ -73,6 +89,8 @@ service cloud.firestore {
           && getAfter(companyPath(companyId)).data.name == request.resource.data.companyName
           && getAfter(companyPath(companyId)).data.cnpj == request.resource.data.cnpj
           && getAfter(companyPath(companyId)).data.brandColors == request.resource.data.brandColors
+          && getAfter(companyPath(companyId)).data.askForMonthlyGoalIfMissing == request.resource.data.askForMonthlyGoalIfMissing
+          && getAfter(companyPath(companyId)).data.monthlyGoalReminderMessage == request.resource.data.monthlyGoalReminderMessage
           && existsAfter(memberPath(companyId, userId))
           && getAfter(memberPath(companyId, userId)).data.role == 'owner';
         allow update: if signedIn()
@@ -80,10 +98,12 @@ service cloud.firestore {
           && resource.data.role == 'owner'
           && request.resource.data.role == 'owner'
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['companyName', 'cnpj', 'brandColors'])
+            .hasOnly(['companyName', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage'])
           && request.resource.data.companyName == getAfter(companyPath(companyId)).data.name
           && request.resource.data.cnpj == getAfter(companyPath(companyId)).data.cnpj
           && request.resource.data.brandColors == getAfter(companyPath(companyId)).data.brandColors
+          && request.resource.data.askForMonthlyGoalIfMissing == getAfter(companyPath(companyId)).data.askForMonthlyGoalIfMissing
+          && request.resource.data.monthlyGoalReminderMessage == getAfter(companyPath(companyId)).data.monthlyGoalReminderMessage
           && getAfter(companyPath(companyId)).data.ownerUid == request.auth.uid;
         allow delete: if false;
       }
@@ -93,10 +113,10 @@ service cloud.firestore {
       allow get: if isCompanyMember(companyId);
       allow list: if false;
       allow create: if request.resource.data.keys().hasAll([
-          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.keys().hasOnly([
-          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.name is string
         && request.resource.data.name.size() >= 2
@@ -104,30 +124,34 @@ service cloud.firestore {
         && (request.resource.data.cnpj == null
           || (request.resource.data.cnpj is string && request.resource.data.cnpj.size() == 14))
         && isValidBrandColors(request.resource.data.brandColors)
+        && isValidMonthlyGoalPrompt(request.resource.data)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && isValidOwnerBootstrap(companyId);
       allow delete: if false;
       allow update: if isCompanyOwner(companyId)
         && request.resource.data.keys().hasAll([
-          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.keys().hasOnly([
-          'name', 'ownerUid', 'cnpj', 'brandColors', 'createdAt', 'updatedAt'
+          'name', 'ownerUid', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['name', 'cnpj', 'brandColors', 'updatedAt'])
+          .hasOnly(['name', 'cnpj', 'brandColors', 'askForMonthlyGoalIfMissing', 'monthlyGoalReminderMessage', 'updatedAt'])
         && request.resource.data.name is string
         && request.resource.data.name.size() >= 2
         && request.resource.data.name.size() <= 100
         && (request.resource.data.cnpj == null
           || (request.resource.data.cnpj is string && request.resource.data.cnpj.size() == 14))
         && isValidBrandColors(request.resource.data.brandColors)
+        && isValidMonthlyGoalPrompt(request.resource.data)
         && request.resource.data.updatedAt == request.time
         && getAfter(userMembershipPath(request.auth.uid, companyId)).data.companyName == request.resource.data.name
         && getAfter(userMembershipPath(request.auth.uid, companyId)).data.cnpj == request.resource.data.cnpj
-        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.brandColors == request.resource.data.brandColors;
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.brandColors == request.resource.data.brandColors
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.askForMonthlyGoalIfMissing == request.resource.data.askForMonthlyGoalIfMissing
+        && getAfter(userMembershipPath(request.auth.uid, companyId)).data.monthlyGoalReminderMessage == request.resource.data.monthlyGoalReminderMessage;
 
       match /members/{userId} {
         allow get, list: if isCompanyOwner(companyId)
@@ -157,6 +181,11 @@ service cloud.firestore {
             'commission-rate-chart',
             'commission-rate-details',
             'commission-rate-commission',
+            'product-sales-values',
+            'product-commissions',
+            'product-sales-chart',
+            'product-commission-chart',
+            'goals-progress',
             'sales-evolution'
           ];
           return data.keys().hasAll(['visibleIndicators', 'indicatorOrder', 'updatedAt'])
@@ -184,6 +213,15 @@ service cloud.firestore {
       }
 
       match /sales/{saleId} {
+        function hasValidProductReference(data) {
+          return !data.keys().hasAny(['productId'])
+            || data.productId == null
+            || (data.productId is string
+              && data.productId.size() > 0
+              && data.productId.matches('^[A-Za-z0-9_-]{1,128}$')
+              && exists(productPath(companyId, data.productId)));
+        }
+
         function hasValidCommission(amountCents, rateBps, commissionCents) {
           let centsRemainder = amountCents % 10000;
           let wholeUnits = (amountCents - centsRemainder) / 10000;
@@ -199,7 +237,7 @@ service cloud.firestore {
               'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt'
             ])
             && data.keys().hasOnly([
-              'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt', 'notes'
+              'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt', 'notes', 'productId'
             ])
             && data.userId == request.auth.uid
             && data.amountCents is int
@@ -215,6 +253,7 @@ service cloud.firestore {
             && data.createdAt is timestamp
             && (!data.keys().hasAny(['notes'])
               || (data.notes is string && data.notes.size() <= 500))
+            && hasValidProductReference(data)
             && hasValidCommission(data.amountCents, data.commissionRateBps, data.commissionCents);
         }
 
@@ -231,9 +270,81 @@ service cloud.firestore {
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.userId == resource.data.userId
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'notes']);
+            .hasOnly(['amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'notes', 'productId']);
         allow delete: if isCompanyMember(companyId)
           && resource.data.userId == request.auth.uid;
+      }
+
+      match /goals/{goalId} {
+        function validGoalData(data) {
+          return data.keys().hasAll([
+              'userId', 'startDate', 'endDate', 'targetCents', 'businessDays', 'createdAt', 'updatedAt'
+            ])
+            && data.keys().hasOnly([
+              'userId', 'startDate', 'endDate', 'targetCents', 'businessDays', 'description', 'createdAt', 'updatedAt'
+            ])
+            && data.userId == request.auth.uid
+            && data.startDate is timestamp
+            && data.endDate is timestamp
+            && data.endDate >= data.startDate
+            && data.targetCents is int
+            && data.targetCents > 0
+            && data.targetCents <= 9007199254740991
+            && data.businessDays is int
+            && data.businessDays >= 1
+            && data.businessDays <= 3660
+            && data.createdAt is timestamp
+            && data.updatedAt is timestamp
+            && (!data.keys().hasAny(['description'])
+              || (data.description is string && data.description.size() <= 500));
+        }
+
+        allow get, list: if isCompanyMember(companyId)
+          && resource.data.userId == request.auth.uid;
+        allow create: if isCompanyMember(companyId)
+          && validGoalData(request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isCompanyMember(companyId)
+          && resource.data.userId == request.auth.uid
+          && validGoalData(request.resource.data)
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['startDate', 'endDate', 'targetCents', 'businessDays', 'description', 'updatedAt']);
+        allow delete: if isCompanyMember(companyId)
+          && resource.data.userId == request.auth.uid;
+      }
+
+      match /products/{productId} {
+        function validProduct(data) {
+          return data.keys().hasAll(['name', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy'])
+            && data.keys().hasOnly(['name', 'description', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy'])
+            && data.name is string
+            && data.name.size() >= 2
+            && data.name.size() <= 100
+            && (!data.keys().hasAny(['description']) || (data.description is string && data.description.size() <= 500))
+            && data.createdAt is timestamp
+            && data.updatedAt is timestamp
+            && data.createdBy is string
+            && data.updatedBy is string;
+        }
+
+        allow get, list: if isCompanyMember(companyId);
+        allow create: if isCompanyMember(companyId)
+          && validProduct(request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow update: if isCompanyMember(companyId)
+          && validProduct(request.resource.data)
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'updatedAt', 'updatedBy']);
+        allow delete: if false;
       }
 
       match /invitations/{invitationId} {

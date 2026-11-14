@@ -11,21 +11,28 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { ArrowDownRight, ArrowUpRight, Building2, CalendarDays, CircleAlert, Clock3, Layers3, Minus, Percent, Plus, RefreshCw, Settings2, type LucideIcon } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { ArrowDownRight, ArrowUpRight, Building2, CalendarDays, CircleAlert, Clock3, Layers3, Minus, Package, Percent, Plus, RefreshCw, Settings2, Target, type LucideIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { AccountMenu } from '../../components/AccountMenu'
 import { BrandMark } from '../../components/BrandMark'
+import { LoadingSkeleton } from '../../components/LoadingSkeleton'
+import { MonthlyGoalReminderModal } from '../../components/MonthlyGoalReminderModal'
 import { DashboardSettingsModal } from '../../components/DashboardSettingsModal'
 import { SalesHistory } from '../../components/SalesHistory'
 import { useAuth } from '../../hooks/useAuth'
 import { useCompany } from '../../hooks/useCompany'
-import { getDashboardSales } from '../../services/dashboardService'
+import { getDashboardSales, getSalesForDateRange } from '../../services/dashboardService'
+import { getCompanyProducts } from '../../services/productService'
+import { getGoals } from '../../services/goalService'
 import { createDefaultDashboardPreferences, getDashboardPreferences, saveDashboardPreferences } from '../../services/dashboardPreferencesService'
-import type { DashboardIndicatorId, DashboardInterval, DashboardOverview, DashboardPreferences } from '../../types/dashboard'
+import type { DashboardIndicatorId, DashboardInterval, DashboardOverview, DashboardPreferences, ProductSalesSummary } from '../../types/dashboard'
 import type { Sale } from '../../types/sale'
+import type { Goal } from '../../types/goal'
 import { buildCommissionRateChart, buildCommissionRateSummaryForRange, buildDashboardOverview, getDashboardPeriodBounds } from '../../utils/dashboardMetrics'
 import { formatBRLFromCents } from '../../utils/currency'
+import { calculateGoalMetrics } from '../../utils/goalMetrics'
+import { buildProductSalesSummaries } from '../../utils/productMetrics'
 
 const periods: { value: DashboardInterval; label: string }[] = [
   { value: 'day', label: 'Dia atual' },
@@ -67,6 +74,15 @@ function periodDateLabel(period: DashboardInterval, now: Date, customStart = '',
 
 function overviewDateInput(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function localDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function goalIsActive(goal: Goal, date: Date) {
+  const day = localDay(date).getTime()
+  return localDay(goal.startDate.toDate()).getTime() <= day && localDay(goal.endDate.toDate()).getTime() >= day
 }
 
 function errorMessage(error: unknown) {
@@ -124,12 +140,12 @@ function CommissionRateChartPanel({ chartData, period }: { chartData: ReturnType
       <div className="dashboard-rate-chart" style={{ height: Math.max(250, chartData.length * 24) }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 20, bottom: 4, left: 4 }}>
-            <CartesianGrid stroke="#e9efeb" strokeDasharray="4 5" horizontal={false} />
-            <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: '#87938d', fontSize: 10 }} />
-            <YAxis type="category" dataKey="label" width={62} interval={0} tickLine={false} axisLine={false} tick={{ fill: '#65766d', fontSize: 10 }} />
+            <CartesianGrid stroke="var(--app-border)" strokeDasharray="4 5" horizontal={false} />
+            <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} />
+            <YAxis type="category" dataKey="label" width={62} interval={0} tickLine={false} axisLine={false} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} />
             <Tooltip
               formatter={(value) => [`${Number(value ?? 0).toLocaleString('pt-BR')} ${Number(value ?? 0) === 1 ? 'venda' : 'vendas'}`, 'Quantidade']}
-              contentStyle={{ border: '1px solid #e1e9e4', borderRadius: 10, boxShadow: '0 8px 24px rgba(20,54,40,.08)', fontSize: 12 }}
+              contentStyle={{ border: '1px solid var(--app-border)', borderRadius: 10, background: 'var(--app-surface)', color: 'var(--app-text)', boxShadow: '0 8px 24px var(--brand-shadow)', fontSize: 12 }}
             />
             <Bar dataKey="salesCount" name="Vendas" fill="var(--brand-primary)" radius={[0, 5, 5, 0]} barSize={13} />
           </BarChart>
@@ -170,6 +186,46 @@ function CommissionByRatePanel({ summaries, period }: { summaries: ReturnType<ty
   </section>
 }
 
+function ProductBreakdownPanel({ summaries, period, metric }: { summaries: ProductSalesSummary[]; period: DashboardInterval; metric: 'sales' | 'commission' }) {
+  const isCommission = metric === 'commission'
+  const title = isCommission ? 'Comissões por produto' : 'Vendas por produto'
+  const headingId = isCommission ? 'dashboard-product-commissions-title' : 'dashboard-product-sales-title'
+  return <section className="dashboard-panel dashboard-product-panel" aria-labelledby={headingId}>
+    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Package size={14} /> Produtos</span><h2 id={headingId}>{title}</h2><p>{periodLabels[period]} · {isCommission ? 'comissão gerada por produto' : 'valor vendido e quantidade de vendas'}</p></div></div>
+    {summaries.length === 0 ? <div className="dashboard-rate-empty">Ainda não há vendas neste período.</div> : <div className="dashboard-product-list">
+      {summaries.map((summary) => <article className={`dashboard-product-row${isCommission ? ' is-commission' : ''}`} key={summary.productId ?? 'without-product'}>
+        <div><strong>{summary.productName}</strong><span>{summary.salesCount.toLocaleString('pt-BR')} {summary.salesCount === 1 ? 'venda' : 'vendas'}</span></div>
+        <strong>{formatBRLFromCents(isCommission ? summary.commissionCents : summary.salesCents)}</strong>
+      </article>)}
+    </div>}
+  </section>
+}
+
+function ProductSalesChartPanel({ summaries, period, metric }: { summaries: ProductSalesSummary[]; period: DashboardInterval; metric: 'sales' | 'commission' }) {
+  const isCommission = metric === 'commission'
+  const title = isCommission ? 'Comissões por produto' : 'Vendas por produto'
+  const headingId = isCommission ? 'dashboard-product-commission-chart-title' : 'dashboard-product-chart-title'
+  const chartData = summaries.map((summary) => ({
+    label: summary.productName.length > 22 ? `${summary.productName.slice(0, 21)}…` : summary.productName,
+    salesCents: summary.salesCents,
+    commissionCents: summary.commissionCents,
+  }))
+  return <section className="dashboard-panel dashboard-product-panel dashboard-product-chart-panel" aria-labelledby={headingId}>
+    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Package size={14} /> Produtos</span><h2 id={headingId}>{title}</h2><p>{periodLabels[period]} · {isCommission ? 'comissões geradas em cada produto' : 'valores vendidos em cada produto'}</p></div></div>
+    {chartData.length === 0 ? <div className="dashboard-rate-empty">Ainda não há vendas neste período.</div> : <div className="dashboard-product-chart-scroll"><div className="dashboard-product-chart" style={{ height: Math.max(230, chartData.length * 38) }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 12, bottom: 4, left: 2 }}>
+          <CartesianGrid stroke="var(--app-border)" strokeDasharray="4 5" horizontal={false} />
+          <XAxis type="number" tickLine={false} axisLine={false} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} tickFormatter={(value: number) => compactCurrency.format(value / 100)} />
+          <YAxis type="category" dataKey="label" width={126} interval={0} tickLine={false} axisLine={false} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} />
+          <Tooltip formatter={(value) => [formatBRLFromCents(Number(value ?? 0)), isCommission ? 'Comissão' : 'Vendido']} contentStyle={{ border: '1px solid var(--app-border)', borderRadius: 10, background: 'var(--app-surface)', color: 'var(--app-text)', boxShadow: '0 8px 24px var(--brand-shadow)', fontSize: 12 }} />
+          <Bar dataKey={isCommission ? 'commissionCents' : 'salesCents'} name={isCommission ? 'Comissão' : 'Vendido'} fill="var(--brand-primary)" radius={[0, 5, 5, 0]} barSize={16} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div></div>}
+  </section>
+}
+
 function SalesEvolutionPanel({ overview, period }: { overview: DashboardOverview; period: DashboardInterval }) {
   return <section className="dashboard-panel dashboard-chart-panel" aria-labelledby="dashboard-chart-title">
     <div className="dashboard-panel-heading">
@@ -178,26 +234,61 @@ function SalesEvolutionPanel({ overview, period }: { overview: DashboardOverview
     <div className="dashboard-chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={overview.chart} margin={{ top: 10, right: 6, bottom: 0, left: 0 }}>
-          <CartesianGrid stroke="#e9efeb" strokeDasharray="4 5" vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#87938d', fontSize: 11 }} minTickGap={18} />
-          <YAxis yAxisId="sales" tickLine={false} axisLine={false} width={64} tick={{ fill: '#87938d', fontSize: 10 }} tickFormatter={(value: number) => compactCurrency.format(value / 100)} />
-          <YAxis yAxisId="commission" orientation="right" tickLine={false} axisLine={false} width={64} tick={{ fill: '#87938d', fontSize: 10 }} tickFormatter={(value: number) => compactCurrency.format(value / 100)} />
-          <Tooltip formatter={(value, name) => [formatBRLFromCents(Number(value ?? 0)), String(name)]} contentStyle={{ border: '1px solid #e1e9e4', borderRadius: 10, boxShadow: '0 8px 24px rgba(20,54,40,.08)', fontSize: 12 }} />
+          <CartesianGrid stroke="var(--app-border)" strokeDasharray="4 5" vertical={false} />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: 'var(--app-muted-text)', fontSize: 11 }} minTickGap={18} />
+          <YAxis yAxisId="sales" tickLine={false} axisLine={false} width={64} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} tickFormatter={(value: number) => compactCurrency.format(value / 100)} />
+          <YAxis yAxisId="commission" orientation="right" tickLine={false} axisLine={false} width={64} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} tickFormatter={(value: number) => compactCurrency.format(value / 100)} />
+          <Tooltip formatter={(value, name) => [formatBRLFromCents(Number(value ?? 0)), String(name)]} contentStyle={{ border: '1px solid var(--app-border)', borderRadius: 10, background: 'var(--app-surface)', color: 'var(--app-text)', boxShadow: '0 8px 24px var(--brand-shadow)', fontSize: 12 }} />
           <Legend wrapperStyle={{ paddingTop: 10, fontSize: 11 }} />
           <Area yAxisId="sales" type="monotone" dataKey="salesCents" name="Vendas" stroke="var(--brand-primary)" fill="var(--brand-primary)" fillOpacity={0.12} strokeWidth={2.5} activeDot={{ r: 5 }} />
-          <Line yAxisId="commission" type="monotone" dataKey="commissionCents" name="Comissões" stroke="#e1a44d" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+          <Line yAxisId="commission" type="monotone" dataKey="commissionCents" name="Comissões" stroke="var(--brand-chart-secondary)" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
   </section>
 }
 
+function GoalProgressPanel({ goals, sales, now, companyId }: { goals: Goal[]; sales: Sale[]; now: Date; companyId: string }) {
+  return <section className="dashboard-panel dashboard-goals-panel" aria-labelledby="dashboard-goals-title">
+    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Target size={14} /> Objetivos</span><h2 id="dashboard-goals-title">Metas vigentes</h2><p>Seu progresso individual em cada meta ativa.</p></div><Link className="dashboard-see-all" to={`/empresas/${companyId}/metas`}>Gerenciar metas <ArrowUpRight size={14} /></Link></div>
+    {goals.length === 0 ? <div className="dashboard-goals-empty"><span>Você ainda não tem metas vigentes.</span><Link className="quiet-button" to={`/empresas/${companyId}/metas`}><Plus size={14} />Criar meta</Link></div> : (
+      <div className="dashboard-goals-list">
+        {goals.map((goal) => {
+          const metrics = calculateGoalMetrics(goal, sales, now)
+          const percentageWidth = Math.max(0, Math.min(100, metrics.achievedPercent))
+          const period = `${goal.startDate.toDate().toLocaleDateString('pt-BR')} – ${goal.endDate.toDate().toLocaleDateString('pt-BR')}`
+          return <article className="dashboard-goal-card" key={goal.goalId}>
+            <div className="dashboard-goal-heading"><div><strong>{goal.description || 'Meta individual'}</strong><span>{period} · {goal.businessDays} dias úteis</span></div><span className="dashboard-goal-achieved">{metrics.achievedPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</span></div>
+            <div className="dashboard-goal-progress" role="progressbar" aria-label={`Meta atingida: ${metrics.achievedPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentageWidth}><span style={{ width: `${percentageWidth}%` }} /></div>
+            <div className="dashboard-goal-metrics">
+              <div><span>Meta do período</span><strong>{formatBRLFromCents(goal.targetCents)}</strong></div>
+              <div className="is-highlight"><span>Realizado</span><strong>{formatBRLFromCents(metrics.realizedCents)}</strong></div>
+              <div><span>Falta para a meta</span><strong>{formatBRLFromCents(metrics.remainingCents)}</strong></div>
+              <div><span>Percentual restante</span><strong>{metrics.remainingPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</strong></div>
+              <div><span>Meta diária</span><strong>{formatBRLFromCents(metrics.targetPerBusinessDayCents)}</strong></div>
+              <div><span>Necessário por dia{metrics.isExpired ? ' · prazo encerrado' : ` · ${metrics.remainingBusinessDays} dias úteis restantes`}</span><strong>{formatBRLFromCents(metrics.requiredPerRemainingDayCents)}</strong></div>
+              <div><span>Média por dia útil · {metrics.elapsedBusinessDays} dias</span><strong>{formatBRLFromCents(metrics.averagePerElapsedDayCents)}</strong></div>
+            </div>
+          </article>
+        })}
+      </div>
+    )}
+  </section>
+}
+
 export function DashboardPage() {
   const { companyId = '' } = useParams()
+  const navigate = useNavigate()
   const { currentUser } = useAuth()
   const { companies, activeCompany, loading: loadingCompany, selectCompany } = useCompany()
   const company = companies.find((item) => item.companyId === companyId) ?? null
   const [sales, setSales] = useState<Sale[]>([])
+  const [productNames, setProductNames] = useState<Record<string, string>>({})
+  const [goals, setGoals] = useState<Goal[]>([])
+  const [goalSales, setGoalSales] = useState<Sale[]>([])
+  const [goalsError, setGoalsError] = useState('')
+  const [showGoalReminder, setShowGoalReminder] = useState(false)
+  const goalReminderCheckedCompany = useRef<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [preferencesError, setPreferencesError] = useState('')
@@ -220,6 +311,7 @@ export function DashboardPage() {
   const rateBounds = useMemo(() => getDashboardPeriodBounds(appliedPeriod, now, appliedCustomRange), [appliedPeriod, appliedCustomRange, now])
   const rateSummaries = useMemo(() => buildCommissionRateSummaryForRange(sales, rateBounds.currentStart, rateBounds.currentEnd), [sales, rateBounds.currentEnd, rateBounds.currentStart])
   const rateChartData = useMemo(() => buildCommissionRateChart(rateSummaries), [rateSummaries])
+  const productSummaries = useMemo(() => buildProductSalesSummaries(sales, productNames, rateBounds.currentStart, rateBounds.currentEnd), [sales, productNames, rateBounds.currentEnd, rateBounds.currentStart])
 
   const loadDashboard = useCallback(async () => {
     if (!currentUser || !company) {
@@ -230,9 +322,11 @@ export function DashboardPage() {
     setLoading(true)
     setError('')
     const refreshedAt = new Date()
-    const [salesResult, preferencesResult] = await Promise.allSettled([
+    const [salesResult, preferencesResult, goalsResult, productsResult] = await Promise.allSettled([
       getDashboardSales(company.companyId, currentUser.uid, appliedPeriod, refreshedAt, appliedCustomRange),
       getDashboardPreferences(company.companyId, currentUser.uid),
+      getGoals(company.companyId, currentUser.uid),
+      getCompanyProducts(company.companyId),
     ])
     if (salesResult.status === 'fulfilled') {
       setSales(salesResult.value)
@@ -241,6 +335,12 @@ export function DashboardPage() {
       console.error('Falha ao carregar dashboard do Firestore:', salesResult.reason)
       setError(errorMessage(salesResult.reason))
     }
+    if (productsResult.status === 'fulfilled') {
+      setProductNames(Object.fromEntries(productsResult.value.map((product) => [product.productId, product.name])))
+    } else {
+      console.error('Falha ao carregar catálogo de produtos do dashboard:', productsResult.reason)
+      setProductNames({})
+    }
     if (preferencesResult.status === 'fulfilled') {
       setPreferences(preferencesResult.value)
       setPreferencesError('')
@@ -248,6 +348,43 @@ export function DashboardPage() {
       console.error('Falha ao carregar preferências do dashboard:', preferencesResult.reason)
       setPreferences(createDefaultDashboardPreferences())
       setPreferencesError('Não foi possível carregar sua configuração personalizada. O dashboard está usando o padrão.')
+    }
+    if (goalsResult.status === 'fulfilled') {
+      const loadedGoals = goalsResult.value
+      setGoals(loadedGoals)
+      if (goalReminderCheckedCompany.current !== company.companyId) {
+        const monthStart = new Date(refreshedAt.getFullYear(), refreshedAt.getMonth(), 1)
+        const nextMonthStart = new Date(refreshedAt.getFullYear(), refreshedAt.getMonth() + 1, 1)
+        const hasGoalForCurrentMonth = loadedGoals.some((goal) => {
+          const goalStart = localDay(goal.startDate.toDate())
+          const goalEndExclusive = localDay(goal.endDate.toDate())
+          goalEndExclusive.setDate(goalEndExclusive.getDate() + 1)
+          return goalStart < nextMonthStart && goalEndExclusive > monthStart
+        })
+        goalReminderCheckedCompany.current = company.companyId
+        setShowGoalReminder(company.askForMonthlyGoalIfMissing && !hasGoalForCurrentMonth)
+      }
+      const activeGoals = loadedGoals.filter((goal) => goalIsActive(goal, refreshedAt))
+      setGoalsError('')
+      if (activeGoals.length === 0) {
+        setGoalSales([])
+      } else {
+        const earliestStart = new Date(Math.min(...activeGoals.map((goal) => localDay(goal.startDate.toDate()).getTime())))
+        const latestEnd = new Date(Math.max(...activeGoals.map((goal) => localDay(goal.endDate.toDate()).getTime())))
+        latestEnd.setDate(latestEnd.getDate() + 1)
+        try {
+          setGoalSales(await getSalesForDateRange(company.companyId, currentUser.uid, earliestStart, latestEnd))
+        } catch (goalSalesError) {
+          console.error('Falha ao carregar vendas para as metas:', goalSalesError)
+          setGoalSales([])
+          setGoalsError('Não foi possível calcular o progresso das metas. Confira as regras e o índice do Firestore.')
+        }
+      }
+    } else {
+      console.error('Falha ao carregar metas:', goalsResult.reason)
+      setGoals([])
+      setGoalSales([])
+      setGoalsError('Não foi possível carregar suas metas. Confira sua conexão e as regras do Firestore.')
     }
     setLoading(false)
   }, [appliedCustomRange, appliedPeriod, company, currentUser])
@@ -297,7 +434,7 @@ export function DashboardPage() {
     setPeriodApplyVersion((version) => version + 1)
   }
 
-  if (loadingCompany) return <div className="loading-screen">Carregando empresa…</div>
+  if (loadingCompany) return <LoadingSkeleton variant="dashboard" />
   if (!company) return <Navigate to="/empresas" replace />
 
   const indicatorWidgets: Record<DashboardIndicatorId, ReactNode> = {
@@ -308,6 +445,13 @@ export function DashboardPage() {
     'commission-rate-chart': <CommissionRateChartPanel chartData={rateChartData} period={appliedPeriod} />,
     'commission-rate-details': <CommissionRateDetailsPanel summaries={rateSummaries} period={appliedPeriod} />,
     'commission-rate-commission': <CommissionByRatePanel summaries={rateSummaries} period={appliedPeriod} />,
+    'product-sales-values': <ProductBreakdownPanel summaries={productSummaries} period={appliedPeriod} metric="sales" />,
+    'product-commissions': <ProductBreakdownPanel summaries={productSummaries} period={appliedPeriod} metric="commission" />,
+    'product-sales-chart': <ProductSalesChartPanel summaries={productSummaries} period={appliedPeriod} metric="sales" />,
+    'product-commission-chart': <ProductSalesChartPanel summaries={productSummaries} period={appliedPeriod} metric="commission" />,
+    'goals-progress': goalsError
+      ? <section className="dashboard-panel dashboard-goals-panel" role="status"><h2>Metas</h2><p>{goalsError}</p><Link className="quiet-button" to={`/empresas/${company.companyId}/metas`}>Gerenciar metas</Link></section>
+      : <GoalProgressPanel goals={goals.filter((goal) => goalIsActive(goal, now))} sales={goalSales} now={now} companyId={company.companyId} />,
     'sales-evolution': <SalesEvolutionPanel overview={overview} period={appliedPeriod} />,
   }
 
@@ -340,7 +484,7 @@ export function DashboardPage() {
       {preferencesError && <p className="dashboard-settings-error dashboard-settings-inline-error" role="status">{preferencesError}</p>}
 
       {error ? <div className="dashboard-error" role="alert"><CircleAlert size={18} /><span>{error}</span><button className="quiet-button" type="button" onClick={() => void loadDashboard()}><RefreshCw size={14} />Tentar novamente</button></div> : loading ? (
-        <div className="dashboard-loading"><span>Atualizando os indicadores do período…</span></div>
+        <LoadingSkeleton variant="dashboard-content" page={false} />
       ) : (
         <>
           <section className="dashboard-widgets-grid" aria-label="Indicadores personalizados">
@@ -352,5 +496,13 @@ export function DashboardPage() {
     </div>
     <Link className="primary-button dashboard-mobile-sale-button" to={`/empresas/${company.companyId}/vendas`}><Plus size={18} /> Lançar venda</Link>
     {settingsOpen && <DashboardSettingsModal preferences={preferences} saving={savingPreferences} error={settingsError} onClose={() => setSettingsOpen(false)} onSave={savePreferences} />}
+    {showGoalReminder && !loading && <MonthlyGoalReminderModal
+      message={company.monthlyGoalReminderMessage}
+      onDismiss={() => setShowGoalReminder(false)}
+      onCreateGoal={() => {
+        setShowGoalReminder(false)
+        navigate(`/empresas/${company.companyId}/metas`, { state: { openGoalModal: true } })
+      }}
+    />}
   </main>
 }
