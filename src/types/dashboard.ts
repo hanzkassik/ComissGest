@@ -15,6 +15,7 @@ export const dashboardIndicatorIds = [
   'product-commission-chart',
   'goals-progress',
   'sales-evolution',
+  'sales-history',
 ] as const
 
 export type DashboardIndicatorId = typeof dashboardIndicatorIds[number]

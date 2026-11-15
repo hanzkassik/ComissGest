@@ -22,13 +22,15 @@ import { DashboardSettingsModal } from '../../components/DashboardSettingsModal'
 import { SalesHistory } from '../../components/SalesHistory'
 import { useAuth } from '../../hooks/useAuth'
 import { useCompany } from '../../hooks/useCompany'
-import { getDashboardSales, getSalesForDateRange } from '../../services/dashboardService'
+import { getDashboardSales } from '../../services/dashboardService'
 import { getCompanyProducts } from '../../services/productService'
 import { getGoals } from '../../services/goalService'
+import { getCompanyScreen } from '../../services/customScreenService'
 import { createDefaultDashboardPreferences, getDashboardPreferences, saveDashboardPreferences } from '../../services/dashboardPreferencesService'
 import type { DashboardIndicatorId, DashboardInterval, DashboardOverview, DashboardPreferences, ProductSalesSummary } from '../../types/dashboard'
 import type { Sale } from '../../types/sale'
 import type { Goal } from '../../types/goal'
+import type { CustomScreen } from '../../types/customScreen'
 import { buildCommissionRateChart, buildCommissionRateSummaryForRange, buildDashboardOverview, getDashboardPeriodBounds } from '../../utils/dashboardMetrics'
 import { formatBRLFromCents } from '../../utils/currency'
 import { calculateGoalMetrics } from '../../utils/goalMetrics'
@@ -80,9 +82,11 @@ function localDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
-function goalIsActive(goal: Goal, date: Date) {
-  const day = localDay(date).getTime()
-  return localDay(goal.startDate.toDate()).getTime() <= day && localDay(goal.endDate.toDate()).getTime() >= day
+function goalOverlapsRange(goal: Goal, start: Date, endExclusive: Date) {
+  const goalStart = localDay(goal.startDate.toDate())
+  const goalEndExclusive = localDay(goal.endDate.toDate())
+  goalEndExclusive.setDate(goalEndExclusive.getDate() + 1)
+  return goalStart < endExclusive && goalEndExclusive > start
 }
 
 function errorMessage(error: unknown) {
@@ -248,13 +252,13 @@ function SalesEvolutionPanel({ overview, period }: { overview: DashboardOverview
   </section>
 }
 
-function GoalProgressPanel({ goals, sales, now, companyId }: { goals: Goal[]; sales: Sale[]; now: Date; companyId: string }) {
+function GoalProgressPanel({ goals, sales, now, companyId, periodSummary, periodStart, periodEnd }: { goals: Goal[]; sales: Sale[]; now: Date; companyId: string; periodSummary: DashboardOverview['currentPeriod']; periodStart: Date; periodEnd: Date }) {
   return <section className="dashboard-panel dashboard-goals-panel" aria-labelledby="dashboard-goals-title">
-    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Target size={14} /> Objetivos</span><h2 id="dashboard-goals-title">Metas vigentes</h2><p>Seu progresso individual em cada meta ativa.</p></div><Link className="dashboard-see-all" to={`/empresas/${companyId}/metas`}>Gerenciar metas <ArrowUpRight size={14} /></Link></div>
-    {goals.length === 0 ? <div className="dashboard-goals-empty"><span>Você ainda não tem metas vigentes.</span><Link className="quiet-button" to={`/empresas/${companyId}/metas`}><Plus size={14} />Criar meta</Link></div> : (
+    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Target size={14} /> Objetivos</span><h2 id="dashboard-goals-title">Metas do período</h2><p>Seu progresso individual nas metas que coincidem com o período selecionado.</p></div><Link className="dashboard-see-all" to={`/empresas/${companyId}/metas`}>Gerenciar metas <ArrowUpRight size={14} /></Link></div>
+    {goals.length === 0 ? <div className="dashboard-goals-empty"><span>Você não tem metas cadastradas neste período.</span><Link className="quiet-button" to={`/empresas/${companyId}/metas`}><Plus size={14} />Criar meta</Link></div> : (
       <div className="dashboard-goals-list">
         {goals.map((goal) => {
-          const metrics = calculateGoalMetrics(goal, sales, now)
+          const metrics = calculateGoalMetrics(goal, sales, now, { start: periodStart, end: periodEnd })
           const percentageWidth = Math.max(0, Math.min(100, metrics.achievedPercent))
           const period = `${goal.startDate.toDate().toLocaleDateString('pt-BR')} – ${goal.endDate.toDate().toLocaleDateString('pt-BR')}`
           return <article className="dashboard-goal-card" key={goal.goalId}>
@@ -268,6 +272,7 @@ function GoalProgressPanel({ goals, sales, now, companyId }: { goals: Goal[]; sa
               <div><span>Meta diária</span><strong>{formatBRLFromCents(metrics.targetPerBusinessDayCents)}</strong></div>
               <div><span>Necessário por dia{metrics.isExpired ? ' · prazo encerrado' : ` · ${metrics.remainingBusinessDays} dias úteis restantes`}</span><strong>{formatBRLFromCents(metrics.requiredPerRemainingDayCents)}</strong></div>
               <div><span>Média por dia útil · {metrics.elapsedBusinessDays} dias</span><strong>{formatBRLFromCents(metrics.averagePerElapsedDayCents)}</strong></div>
+              <div><span>Ticket médio por venda</span><strong>{formatBRLFromCents(periodSummary.count > 0 ? Math.round(periodSummary.salesCents / periodSummary.count) : 0)}</strong></div>
             </div>
           </article>
         })}
@@ -277,7 +282,7 @@ function GoalProgressPanel({ goals, sales, now, companyId }: { goals: Goal[]; sa
 }
 
 export function DashboardPage() {
-  const { companyId = '' } = useParams()
+  const { companyId = '', screenId } = useParams()
   const navigate = useNavigate()
   const { currentUser } = useAuth()
   const { companies, activeCompany, loading: loadingCompany, selectCompany } = useCompany()
@@ -285,7 +290,9 @@ export function DashboardPage() {
   const [sales, setSales] = useState<Sale[]>([])
   const [productNames, setProductNames] = useState<Record<string, string>>({})
   const [goals, setGoals] = useState<Goal[]>([])
-  const [goalSales, setGoalSales] = useState<Sale[]>([])
+  const [customScreen, setCustomScreen] = useState<CustomScreen | null>(null)
+  const [customScreenLoading, setCustomScreenLoading] = useState(Boolean(screenId))
+  const [customScreenResolvedKey, setCustomScreenResolvedKey] = useState('')
   const [goalsError, setGoalsError] = useState('')
   const [showGoalReminder, setShowGoalReminder] = useState(false)
   const goalReminderCheckedCompany = useRef<string | null>(null)
@@ -307,11 +314,39 @@ export function DashboardPage() {
   const [settingsSaved, setSettingsSaved] = useState(false)
 
   const overview = useMemo(() => buildDashboardOverview(sales, appliedPeriod, now, appliedCustomRange), [sales, appliedPeriod, now, appliedCustomRange])
-  const visibleIndicators = useMemo(() => new Set(preferences.visibleIndicators), [preferences.visibleIndicators])
+  const pagePreferences = screenId && customScreen
+    ? { visibleIndicators: customScreen.visibleIndicators, indicatorOrder: customScreen.indicatorOrder }
+    : preferences
+  const visibleIndicators = useMemo(() => new Set(pagePreferences.visibleIndicators), [pagePreferences.visibleIndicators])
   const rateBounds = useMemo(() => getDashboardPeriodBounds(appliedPeriod, now, appliedCustomRange), [appliedPeriod, appliedCustomRange, now])
   const rateSummaries = useMemo(() => buildCommissionRateSummaryForRange(sales, rateBounds.currentStart, rateBounds.currentEnd), [sales, rateBounds.currentEnd, rateBounds.currentStart])
   const rateChartData = useMemo(() => buildCommissionRateChart(rateSummaries), [rateSummaries])
   const productSummaries = useMemo(() => buildProductSalesSummaries(sales, productNames, rateBounds.currentStart, rateBounds.currentEnd), [sales, productNames, rateBounds.currentEnd, rateBounds.currentStart])
+
+  useEffect(() => {
+    if (!screenId) {
+      setCustomScreen(null)
+      setCustomScreenLoading(false)
+      setCustomScreenResolvedKey('')
+      return
+    }
+    let cancelled = false
+    const requestKey = `${companyId}:${screenId}`
+    setCustomScreen(null)
+    setCustomScreenLoading(true)
+    void getCompanyScreen(companyId, screenId).then((screen) => {
+      if (!cancelled) setCustomScreen(screen?.enabled ? screen : null)
+    }).catch((screenError: unknown) => {
+      console.error('Falha ao carregar tela adicional:', screenError)
+      if (!cancelled) setCustomScreen(null)
+    }).finally(() => {
+      if (!cancelled) {
+        setCustomScreenLoading(false)
+        setCustomScreenResolvedKey(requestKey)
+      }
+    })
+    return () => { cancelled = true }
+  }, [companyId, screenId])
 
   const loadDashboard = useCallback(async () => {
     if (!currentUser || !company) {
@@ -324,7 +359,7 @@ export function DashboardPage() {
     const refreshedAt = new Date()
     const [salesResult, preferencesResult, goalsResult, productsResult] = await Promise.allSettled([
       getDashboardSales(company.companyId, currentUser.uid, appliedPeriod, refreshedAt, appliedCustomRange),
-      getDashboardPreferences(company.companyId, currentUser.uid),
+      screenId ? Promise.resolve(createDefaultDashboardPreferences()) : getDashboardPreferences(company.companyId, currentUser.uid),
       getGoals(company.companyId, currentUser.uid),
       getCompanyProducts(company.companyId),
     ])
@@ -352,7 +387,7 @@ export function DashboardPage() {
     if (goalsResult.status === 'fulfilled') {
       const loadedGoals = goalsResult.value
       setGoals(loadedGoals)
-      if (goalReminderCheckedCompany.current !== company.companyId) {
+      if (!screenId && goalReminderCheckedCompany.current !== company.companyId) {
         const monthStart = new Date(refreshedAt.getFullYear(), refreshedAt.getMonth(), 1)
         const nextMonthStart = new Date(refreshedAt.getFullYear(), refreshedAt.getMonth() + 1, 1)
         const hasGoalForCurrentMonth = loadedGoals.some((goal) => {
@@ -364,30 +399,14 @@ export function DashboardPage() {
         goalReminderCheckedCompany.current = company.companyId
         setShowGoalReminder(company.askForMonthlyGoalIfMissing && !hasGoalForCurrentMonth)
       }
-      const activeGoals = loadedGoals.filter((goal) => goalIsActive(goal, refreshedAt))
       setGoalsError('')
-      if (activeGoals.length === 0) {
-        setGoalSales([])
-      } else {
-        const earliestStart = new Date(Math.min(...activeGoals.map((goal) => localDay(goal.startDate.toDate()).getTime())))
-        const latestEnd = new Date(Math.max(...activeGoals.map((goal) => localDay(goal.endDate.toDate()).getTime())))
-        latestEnd.setDate(latestEnd.getDate() + 1)
-        try {
-          setGoalSales(await getSalesForDateRange(company.companyId, currentUser.uid, earliestStart, latestEnd))
-        } catch (goalSalesError) {
-          console.error('Falha ao carregar vendas para as metas:', goalSalesError)
-          setGoalSales([])
-          setGoalsError('Não foi possível calcular o progresso das metas. Confira as regras e o índice do Firestore.')
-        }
-      }
     } else {
       console.error('Falha ao carregar metas:', goalsResult.reason)
       setGoals([])
-      setGoalSales([])
       setGoalsError('Não foi possível carregar suas metas. Confira sua conexão e as regras do Firestore.')
     }
     setLoading(false)
-  }, [appliedCustomRange, appliedPeriod, company, currentUser])
+  }, [appliedCustomRange, appliedPeriod, company, currentUser, screenId])
 
   useEffect(() => {
     void periodApplyVersion
@@ -436,6 +455,8 @@ export function DashboardPage() {
 
   if (loadingCompany) return <LoadingSkeleton variant="dashboard" />
   if (!company) return <Navigate to="/empresas" replace />
+  if (screenId && (customScreenLoading || customScreenResolvedKey !== `${companyId}:${screenId}`)) return <LoadingSkeleton variant="dashboard" />
+  if (screenId && !customScreen) return <Navigate to={`/empresas/${company.companyId}`} replace />
 
   const indicatorWidgets: Record<DashboardIndicatorId, ReactNode> = {
     'period-summary': <PeriodSummary summary={overview.currentPeriod} comparison={overview.periodComparison} period={appliedPeriod} />,
@@ -451,15 +472,16 @@ export function DashboardPage() {
     'product-commission-chart': <ProductSalesChartPanel summaries={productSummaries} period={appliedPeriod} metric="commission" />,
     'goals-progress': goalsError
       ? <section className="dashboard-panel dashboard-goals-panel" role="status"><h2>Metas</h2><p>{goalsError}</p><Link className="quiet-button" to={`/empresas/${company.companyId}/metas`}>Gerenciar metas</Link></section>
-      : <GoalProgressPanel goals={goals.filter((goal) => goalIsActive(goal, now))} sales={goalSales} now={now} companyId={company.companyId} />,
+      : <GoalProgressPanel goals={goals.filter((goal) => goalOverlapsRange(goal, rateBounds.currentStart, rateBounds.currentEnd))} sales={sales} now={now} companyId={company.companyId} periodSummary={overview.currentPeriod} periodStart={rateBounds.currentStart} periodEnd={rateBounds.currentEnd} />,
     'sales-evolution': <SalesEvolutionPanel overview={overview} period={appliedPeriod} />,
+    'sales-history': <SalesHistory key={`${rateBounds.currentStart.getTime()}-${rateBounds.currentEnd.getTime()}`} companyId={company.companyId} companyName={company.companyName} userId={currentUser?.uid ?? ''} containerClassName="dashboard-panel dashboard-sales-history" initialFilters={{ startDate: overviewDateInput(rateBounds.currentStart), endDate: overviewDateInput(new Date(rateBounds.currentEnd.getTime() - 1)) }} />,
   }
 
   return <main className="dashboard-page">
     <header className="topbar"><BrandMark /><div className="topbar-user"><AccountMenu /></div></header>
     <div className="dashboard-content">
       <div className="dashboard-heading">
-        <div><span className="eyebrow"><Building2 size={15} /> {company.companyName}</span><h1>Visão geral</h1><p>Acompanhe suas vendas e comissões em um só lugar.</p></div>
+          <div><span className="eyebrow"><Building2 size={15} /> {company.companyName}</span><h1>{customScreen?.name ?? 'Visão geral'}</h1><p>{customScreen ? 'Acompanhe os indicadores escolhidos para esta tela.' : 'Acompanhe suas vendas e comissões em um só lugar.'}</p></div>
         <div className="dashboard-heading-actions">
           <div className="dashboard-date-pill"><CalendarDays size={15} />{now.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
           <Link className="primary-button dashboard-new-sale" to={`/empresas/${company.companyId}/vendas`}><Plus size={17} /> Lançar venda</Link>
@@ -477,10 +499,10 @@ export function DashboardPage() {
         </div>}
         <span className="dashboard-period-filter-caption">{periodDateLabel(appliedPeriod, now, customStartDraft, customEndDraft)}</span>
         <button className="quiet-button" type="submit" disabled={loading}><RefreshCw size={14} />Aplicar período</button>
-        <button className="quiet-button dashboard-settings-button" type="button" onClick={() => { setSettingsError(''); setSettingsOpen(true) }}><Settings2 size={15} />Configurar</button>
+        {!screenId && <button className="quiet-button dashboard-settings-button" type="button" onClick={() => { setSettingsError(''); setSettingsOpen(true) }}><Settings2 size={15} />Configurar</button>}
       </form>
       {periodValidationError && <p className="field-error" role="alert">{periodValidationError}</p>}
-      {settingsSaved && <p className="dashboard-settings-saved" role="status">Configuração salva para {company.companyName}.</p>}
+      {settingsSaved && <p className="dashboard-settings-saved" role="status">Configuração salva.</p>}
       {preferencesError && <p className="dashboard-settings-error dashboard-settings-inline-error" role="status">{preferencesError}</p>}
 
       {error ? <div className="dashboard-error" role="alert"><CircleAlert size={18} /><span>{error}</span><button className="quiet-button" type="button" onClick={() => void loadDashboard()}><RefreshCw size={14} />Tentar novamente</button></div> : loading ? (
@@ -488,15 +510,14 @@ export function DashboardPage() {
       ) : (
         <>
           <section className="dashboard-widgets-grid" aria-label="Indicadores personalizados">
-            {preferences.indicatorOrder.filter((indicatorId) => visibleIndicators.has(indicatorId)).map((indicatorId) => <div className={`dashboard-widget dashboard-widget-${indicatorId}`} key={indicatorId}>{indicatorWidgets[indicatorId]}</div>)}
+            {pagePreferences.indicatorOrder.filter((indicatorId) => visibleIndicators.has(indicatorId)).map((indicatorId) => <div className={`dashboard-widget dashboard-widget-${indicatorId}`} key={indicatorId}>{indicatorWidgets[indicatorId]}</div>)}
           </section>
-          <SalesHistory key={`${rateBounds.currentStart.getTime()}-${rateBounds.currentEnd.getTime()}`} companyId={company.companyId} companyName={company.companyName} userId={currentUser?.uid ?? ''} containerClassName="dashboard-panel dashboard-sales-history" initialFilters={{ startDate: overviewDateInput(rateBounds.currentStart), endDate: overviewDateInput(new Date(rateBounds.currentEnd.getTime() - 1)) }} />
         </>
       )}
     </div>
     <Link className="primary-button dashboard-mobile-sale-button" to={`/empresas/${company.companyId}/vendas`}><Plus size={18} /> Lançar venda</Link>
-    {settingsOpen && <DashboardSettingsModal preferences={preferences} saving={savingPreferences} error={settingsError} onClose={() => setSettingsOpen(false)} onSave={savePreferences} />}
-    {showGoalReminder && !loading && <MonthlyGoalReminderModal
+    {settingsOpen && !screenId && <DashboardSettingsModal preferences={preferences} saving={savingPreferences} error={settingsError} onClose={() => setSettingsOpen(false)} onSave={savePreferences} />}
+    {showGoalReminder && !screenId && !loading && <MonthlyGoalReminderModal
       message={company.monthlyGoalReminderMessage}
       onDismiss={() => setShowGoalReminder(false)}
       onCreateGoal={() => {

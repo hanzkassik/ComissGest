@@ -1,8 +1,9 @@
-import { BarChart3, Building2, Check, LogOut, Menu, Package, Receipt, Settings2, Target, UserRound, X } from 'lucide-react'
+import { BarChart3, Building2, Check, Layers3, LogOut, Menu, Package, Receipt, Settings2, Target, UserRound, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
+import { useCompanyScreens } from '../hooks/useCompanyScreens'
 import { signOutCurrentUser } from '../services/authService'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -13,6 +14,7 @@ interface AccountMenuProps {
 export function AccountMenu({ showCompanySwitcher = true }: AccountMenuProps) {
   const { currentUser } = useAuth()
   const { companies, activeCompany, selectCompany } = useCompany()
+  const { screens: additionalScreens } = useCompanyScreens(showCompanySwitcher ? activeCompany?.companyId : undefined)
   const location = useLocation()
   const navigate = useNavigate()
   const [signOutError, setSignOutError] = useState('')
@@ -41,8 +43,13 @@ export function AccountMenu({ showCompanySwitcher = true }: AccountMenuProps) {
             <Link className={location.pathname === `/empresas/${activeCompany.companyId}/produtos` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/produtos` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/produtos`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Package size={16} />Produtos</Link>
             <Link className={location.pathname === `/empresas/${activeCompany.companyId}/metas` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/metas` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/metas`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Target size={16} />Metas</Link>
             <Link className={location.pathname === `/empresas/${activeCompany.companyId}/configuracoes` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/configuracoes` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/configuracoes`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Settings2 size={16} />Configurações da empresa</Link>
+            {activeCompany.role === 'owner' && <Link className={location.pathname === `/empresas/${activeCompany.companyId}/construtor-de-telas` ? 'is-current' : ''} aria-current={location.pathname === `/empresas/${activeCompany.companyId}/construtor-de-telas` ? 'page' : undefined} to={`/empresas/${activeCompany.companyId}/construtor-de-telas`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Layers3 size={16} />Construtor de telas</Link>}
           </>}
         </nav>
+        {showCompanySwitcher && activeCompany && additionalScreens.length > 0 && <section className="dashboard-account-additional-screens" aria-label="Telas adicionais">
+          <span>Telas adicionais</span>
+          {additionalScreens.map((screen) => <Link key={screen.screenId} className={location.pathname === `/empresas/${activeCompany.companyId}/construtor-de-telas/${screen.screenId}` ? 'is-current' : ''} to={`/empresas/${activeCompany.companyId}/construtor-de-telas/${screen.screenId}`} onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}><Layers3 size={15} />{screen.name}</Link>)}
+        </section>}
         {showCompanySwitcher && (
           <>
             <div className="dashboard-account-company"><span>Empresa atual</span><strong><Building2 size={14} />{activeCompany?.companyName ?? 'Selecione uma empresa'}</strong></div>
