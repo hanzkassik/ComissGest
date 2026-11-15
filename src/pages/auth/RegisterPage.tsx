@@ -1,21 +1,19 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowRight, LockKeyhole, Mail, UserRound } from 'lucide-react'
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
-import { AuthHeading, AuthLayout } from '../../components/AuthLayout'
+import { AuthHeading, AuthLayout, GoogleSignInButton } from '../../components/AuthLayout'
 import { FormField } from '../../components/FormField'
+import { PhoneField } from '../../components/PhoneField'
 import { PublicOnlyRoute } from '../../components/ProtectedRoute'
 import { registerSchema, type RegisterFormValues } from '../../schemas/authSchemas'
 import { getAuthErrorMessage } from '../../services/authService'
-import { registerAccount } from '../../services/accountService'
+import { registerAccount, signInWithGoogleAccount } from '../../services/accountService'
 
 export function RegisterPage() {
   const [message, setMessage] = useState('')
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<RegisterFormValues>({
-    resolver: zodResolver(registerSchema),
-  })
-
+  const [googleLoading, setGoogleLoading] = useState(false)
   async function onSubmit(values: RegisterFormValues) {
     setMessage('')
     try {
@@ -25,6 +23,23 @@ export function RegisterPage() {
     }
   }
 
+  async function onGoogleSignIn() {
+    setMessage('')
+    setGoogleLoading(true)
+    try {
+      await signInWithGoogleAccount()
+    } catch (error) {
+      setMessage(getAuthErrorMessage(error))
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
+  const form = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: { phone: '' },
+  })
+
   return (
     <PublicOnlyRoute>
       <AuthLayout>
@@ -33,7 +48,9 @@ export function RegisterPage() {
           title="Crie sua conta"
           description="Seus dados ficam organizados em um único lugar."
         />
-        <form className="form-stack" onSubmit={handleSubmit(onSubmit)} noValidate>
+        <GoogleSignInButton onClick={onGoogleSignIn} loading={googleLoading} />
+        <div className="auth-divider"><span>ou crie com seus dados</span></div>
+        <form className="form-stack" onSubmit={form.handleSubmit(onSubmit)} noValidate>
           <FormField
             id="name"
             label="Nome completo"
@@ -41,8 +58,13 @@ export function RegisterPage() {
             type="text"
             placeholder="Como podemos chamar você?"
             autoComplete="name"
-            registration={register('name')}
-            error={errors.name?.message}
+            registration={form.register('name')}
+            error={form.formState.errors.name?.message}
+          />
+          <Controller
+            control={form.control}
+            name="phone"
+            render={({ field }) => <PhoneField id="register-phone" value={field.value} onChange={field.onChange} onBlur={field.onBlur} error={form.formState.errors.phone?.message} />}
           />
           <FormField
             id="email"
@@ -51,8 +73,8 @@ export function RegisterPage() {
             type="email"
             placeholder="voce@empresa.com.br"
             autoComplete="email"
-            registration={register('email')}
-            error={errors.email?.message}
+            registration={form.register('email')}
+            error={form.formState.errors.email?.message}
           />
           <FormField
             id="cpf"
@@ -63,8 +85,8 @@ export function RegisterPage() {
             inputMode="numeric"
             autoComplete="off"
             maxLength={14}
-            registration={register('cpf')}
-            error={errors.cpf?.message}
+            registration={form.register('cpf')}
+            error={form.formState.errors.cpf?.message}
           />
           <FormField
             id="password"
@@ -73,8 +95,8 @@ export function RegisterPage() {
             type="password"
             placeholder="Mínimo de 8 caracteres"
             autoComplete="new-password"
-            registration={register('password')}
-            error={errors.password?.message}
+            registration={form.register('password')}
+            error={form.formState.errors.password?.message}
           />
           <FormField
             id="confirmPassword"
@@ -83,12 +105,12 @@ export function RegisterPage() {
             type="password"
             placeholder="Digite a senha novamente"
             autoComplete="new-password"
-            registration={register('confirmPassword')}
-            error={errors.confirmPassword?.message}
+            registration={form.register('confirmPassword')}
+            error={form.formState.errors.confirmPassword?.message}
           />
           {message && <div className="inline-message error" role="alert">{message}</div>}
-          <button className="primary-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Criando conta…' : 'Criar conta'} <ArrowRight size={17} />
+          <button className="primary-button" type="submit" disabled={form.formState.isSubmitting}>
+            {form.formState.isSubmitting ? 'Criando conta…' : 'Criar conta'} <ArrowRight size={17} />
           </button>
         </form>
         <p className="auth-switch">

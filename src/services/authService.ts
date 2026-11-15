@@ -1,8 +1,10 @@
 import { FirebaseError } from 'firebase/app'
 import {
   EmailAuthProvider,
+  GoogleAuthProvider,
   reauthenticateWithCredential,
   sendPasswordResetEmail,
+  signInWithPopup,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
@@ -13,6 +15,11 @@ import { firebaseAuth } from '../firebase/auth'
 
 export async function signIn(email: string, password: string): Promise<User> {
   const credential = await signInWithEmailAndPassword(firebaseAuth, email, password)
+  return credential.user
+}
+
+export async function signInWithGoogle(): Promise<User> {
+  const credential = await signInWithPopup(firebaseAuth, new GoogleAuthProvider())
   return credential.user
 }
 
@@ -64,6 +71,11 @@ export function getAuthErrorMessage(error: unknown): string {
       'auth/network-request-failed': 'Falha de conexão. Confira sua internet e tente novamente.',
       'auth/operation-not-allowed': 'Este método de acesso ainda não está habilitado no Firebase.',
       'auth/configuration-not-found': 'A configuração do Firebase Authentication não está completa.',
+      'auth/account-exists-with-different-credential': 'Este e-mail já está associado a outro método de acesso. Entre primeiro com o método cadastrado.',
+      'auth/popup-blocked': 'O navegador bloqueou a janela de acesso Google. Permita pop-ups e tente novamente.',
+      'auth/popup-closed-by-user': 'A janela do Google foi fechada antes de concluir o acesso.',
+      'auth/cancelled-popup-request': 'A solicitação de acesso Google foi cancelada. Tente novamente.',
+      'auth/unauthorized-domain': 'Este domínio ainda não está autorizado no Firebase Authentication.',
     }
     return messages[error.code] ?? 'Não foi possível concluir. Tente novamente.'
   }

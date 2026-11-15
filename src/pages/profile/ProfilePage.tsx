@@ -2,11 +2,12 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowLeft, CheckCircle2, KeyRound, Mail, Save, ShieldCheck, UserRound } from 'lucide-react'
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BrandMark } from '../../components/BrandMark'
 import { AccountMenu } from '../../components/AccountMenu'
 import { FormField } from '../../components/FormField'
+import { PhoneField } from '../../components/PhoneField'
 import { useAuth } from '../../hooks/useAuth'
 import { useCompany } from '../../hooks/useCompany'
 import {
@@ -48,7 +49,7 @@ export function ProfilePage() {
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
-    defaultValues: { name: currentUser?.displayName ?? '', cpf: '' },
+    defaultValues: { name: currentUser?.displayName ?? '', cpf: '', phone: '' },
   })
   const emailForm = useForm<EmailChangeFormValues>({ resolver: zodResolver(emailChangeSchema) })
   const passwordForm = useForm<PasswordChangeFormValues>({ resolver: zodResolver(passwordChangeSchema) })
@@ -66,8 +67,9 @@ export function ProfilePage() {
         const data = snapshot.data()
         const name = typeof data?.name === 'string' ? data.name : user.displayName ?? ''
         const cpf = typeof data?.cpf === 'string' ? data.cpf : ''
+        const phone = typeof data?.phone === 'string' ? data.phone : ''
         if (!active) return
-        profileForm.reset({ name, cpf })
+        profileForm.reset({ name, cpf, phone })
 
         // A Firebase email change takes effect only after the user follows the verification link.
         if (snapshot.exists() && typeof user.email === 'string'
@@ -97,8 +99,9 @@ export function ProfilePage() {
       await saveProfile(currentUser, {
         name: values.name,
         cpf: values.cpf?.replace(/\D/g, '') || null,
+        phone: values.phone || null,
       })
-      profileForm.reset({ name: values.name.trim(), cpf: values.cpf?.replace(/\D/g, '') ?? '' })
+      profileForm.reset({ name: values.name.trim(), cpf: values.cpf?.replace(/\D/g, '') ?? '', phone: values.phone ?? '' })
       setProfileFeedback({ kind: 'success', text: 'Seu perfil foi atualizado.' })
     } catch (error) {
       setProfileFeedback({ kind: 'error', text: getAuthErrorMessage(error) })
@@ -175,6 +178,11 @@ export function ProfilePage() {
                 placeholder="000.000.000-00"
                 registration={profileForm.register('cpf')}
                 error={profileForm.formState.errors.cpf?.message}
+              />
+              <Controller
+                control={profileForm.control}
+                name="phone"
+                render={({ field }) => <PhoneField id="profile-phone" value={field.value} onChange={field.onChange} onBlur={field.onBlur} error={profileForm.formState.errors.phone?.message} />}
               />
               {profileFeedback && <FeedbackMessage feedback={profileFeedback} />}
               <button className="primary-button" type="submit" disabled={profileLoading || profileForm.formState.isSubmitting}>
