@@ -17,20 +17,43 @@ export function countBusinessDays(start: Date, end: Date) {
   return count
 }
 
-export function calculateGoalMetrics(goal: Goal, sales: Sale[], now = new Date()): GoalMetrics {
-  const start = startOfDay(goal.startDate.toDate())
-  const end = startOfDay(goal.endDate.toDate())
-  const endExclusive = new Date(end)
-  endExclusive.setDate(endExclusive.getDate() + 1)
+export function calculateGoalMetrics(goal: Goal, sales: Sale[], now = new Date(), periodRange?: { start: Date; end: Date }): GoalMetrics {
+  const goalStart = startOfDay(goal.startDate.toDate())
+  const goalEnd = startOfDay(goal.endDate.toDate())
+  const goalEndExclusive = new Date(goalEnd)
+  goalEndExclusive.setDate(goalEndExclusive.getDate() + 1)
+  const start = periodRange
+    ? new Date(Math.max(goalStart.getTime(), startOfDay(periodRange.start).getTime()))
+    : goalStart
+  const rangeEnd = periodRange ? periodRange.end : goalEndExclusive
+  const endExclusive = new Date(Math.min(goalEndExclusive.getTime(), rangeEnd.getTime()))
+  const end = new Date(endExclusive.getTime() - 1)
+  if (start >= endExclusive) {
+    return {
+      realizedCents: 0,
+      achievedPercent: 0,
+      remainingCents: goal.targetCents,
+      remainingPercent: goal.targetCents > 0 ? 100 : 0,
+      targetPerBusinessDayCents: Math.round(goal.targetCents / goal.businessDays),
+      requiredPerRemainingDayCents: 0,
+      averagePerElapsedDayCents: 0,
+      elapsedBusinessDays: 0,
+      remainingBusinessDays: 0,
+      isExpired: startOfDay(now) > goalEnd,
+    }
+  }
   const today = startOfDay(now)
   const realizedCents = sales.reduce((total, sale) => {
     const soldAt = sale.soldAt.toDate()
     return soldAt >= start && soldAt < endExclusive ? total + sale.amountCents : total
   }, 0)
   const elapsedEnd = today < end ? today : end
-  const elapsedBusinessDays = today < start ? 0 : Math.min(goal.businessDays, countBusinessDays(start, elapsedEnd))
-  const isExpired = today > end
-  const remainingBusinessDays = isExpired ? 0 : Math.max(0, goal.businessDays - elapsedBusinessDays)
+  const elapsedBusinessDays = today < start ? 0 : countBusinessDays(start, elapsedEnd)
+  const isExpired = today > goalEnd
+  const periodBusinessDays = start.getTime() === goalStart.getTime()
+    ? goal.businessDays
+    : countBusinessDays(start, end)
+  const remainingBusinessDays = isExpired ? 0 : Math.max(0, periodBusinessDays - elapsedBusinessDays)
   const remainingCents = Math.max(0, goal.targetCents - realizedCents)
 
   return {

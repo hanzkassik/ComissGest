@@ -378,11 +378,11 @@ test('permite salvar a própria preferência de dashboard na empresa e bloqueia 
   await seedCompany('bob', 'company-bob')
   const aliceDb = testEnvironment.authenticatedContext('alice').firestore()
   const preference = {
-    visibleIndicators: ['period-summary', 'commission-rate-chart', 'commission-rate-commission'],
+    visibleIndicators: ['period-summary', 'commission-rate-chart', 'commission-rate-commission', 'sales-history'],
     indicatorOrder: [
       'period-summary', 'average-commission', 'average-commission-rate',
       'average-sale', 'commission-rate-chart', 'commission-rate-details',
-      'commission-rate-commission', 'goals-progress', 'sales-evolution',
+      'commission-rate-commission', 'goals-progress', 'sales-evolution', 'sales-history',
     ],
     updatedAt: serverTimestamp(),
   }
@@ -399,6 +399,55 @@ test('permite salvar a própria preferência de dashboard na empresa e bloqueia 
     await setDoc(doc(context.firestore(), 'companies', 'company-bob', 'dashboardPreferences', 'alice'), preference)
   })
   await assertFails(getDoc(doc(aliceDb, 'companies', 'company-bob', 'dashboardPreferences', 'alice')))
+})
+
+test('telas adicionais são compartilhadas para leitura ativa e gerenciadas somente pelo proprietário', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  const indicatorOrder = [
+    'period-summary', 'average-commission', 'average-commission-rate', 'average-sale',
+    'commission-rate-chart', 'commission-rate-details', 'commission-rate-commission',
+    'product-sales-values', 'product-commissions', 'product-sales-chart', 'product-commission-chart',
+    'goals-progress', 'sales-evolution', 'sales-history',
+  ]
+  const aliceDb = testEnvironment.authenticatedContext('alice').firestore()
+  const activeScreen = doc(aliceDb, 'companies', companyId, 'customScreens', 'active-screen')
+  const inactiveScreen = doc(aliceDb, 'companies', companyId, 'customScreens', 'inactive-screen')
+  const screenData = (enabled, sortOrder) => ({
+    name: enabled ? 'Tela ativa' : 'Tela pausada',
+    enabled,
+    visibleIndicators: ['period-summary'],
+    indicatorOrder,
+    sortOrder,
+    createdByUid: 'alice',
+    updatedByUid: 'alice',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+
+  await assertSucceeds(setDoc(activeScreen, screenData(true, 0)))
+  await assertSucceeds(setDoc(inactiveScreen, screenData(false, 1)))
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'companies', companyId, 'members', 'bob'), {
+      uid: 'bob', companyId, role: 'member', createdAt: Timestamp.now(),
+    })
+  })
+
+  const bobDb = testEnvironment.authenticatedContext('bob').firestore()
+  await assertSucceeds(getDoc(doc(bobDb, 'companies', companyId, 'customScreens', 'active-screen')))
+  await assertFails(getDoc(doc(bobDb, 'companies', companyId, 'customScreens', 'inactive-screen')))
+  await assertSucceeds(getDocs(query(
+    collection(bobDb, 'companies', companyId, 'customScreens'),
+    where('enabled', '==', true),
+  )))
+  await assertFails(getDocs(collection(bobDb, 'companies', companyId, 'customScreens')))
+  await assertFails(updateDoc(doc(bobDb, 'companies', companyId, 'customScreens', 'active-screen'), {
+    enabled: false,
+    updatedByUid: 'bob',
+    updatedAt: serverTimestamp(),
+  }))
+  await assertFails(deleteDoc(doc(bobDb, 'companies', companyId, 'customScreens', 'active-screen')))
+  await assertSucceeds(deleteDoc(doc(aliceDb, 'companies', companyId, 'customScreens', 'inactive-screen')))
 })
 
 test('isola metas por usuário, mesmo quando ele é proprietário da empresa', async () => {

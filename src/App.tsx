@@ -18,6 +18,7 @@ const SalesPage = lazy(() => import('./pages/sales/SalesPage').then((module) => 
 const ProductsPage = lazy(() => import('./pages/products/ProductsPage').then((module) => ({ default: module.ProductsPage })))
 const GoalsPage = lazy(() => import('./pages/goals/GoalsPage').then((module) => ({ default: module.GoalsPage })))
 const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })))
+const CustomScreensPage = lazy(() => import('./pages/customScreens/CustomScreensPage').then((module) => ({ default: module.CustomScreensPage })))
 
 function LegacyDashboardRedirect() {
   const { activeCompany, loading } = useCompany()
@@ -44,6 +45,8 @@ function App() {
                 <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
                 <Route path="/empresas" element={<ProtectedRoute><CompaniesPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+                <Route path="/empresas/:companyId/construtor-de-telas" element={<ProtectedRoute><CustomScreensPage /></ProtectedRoute>} />
+                <Route path="/empresas/:companyId/construtor-de-telas/:screenId" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/configuracoes" element={<ProtectedRoute><CompanySettingsPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/metas" element={<ProtectedRoute><GoalsPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/vendas" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />

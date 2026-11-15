@@ -186,7 +186,8 @@ service cloud.firestore {
             'product-sales-chart',
             'product-commission-chart',
             'goals-progress',
-            'sales-evolution'
+            'sales-evolution',
+            'sales-history'
           ];
           return data.keys().hasAll(['visibleIndicators', 'indicatorOrder', 'updatedAt'])
             && data.keys().hasOnly(['visibleIndicators', 'indicatorOrder', 'updatedAt'])
@@ -210,6 +211,73 @@ service cloud.firestore {
           && request.auth.uid == userId
           && validDashboardPreference(request.resource.data);
         allow delete: if false;
+      }
+
+      match /customScreens/{screenId} {
+        function validCustomScreen(data) {
+          let allowedIndicators = [
+            'period-summary',
+            'average-commission',
+            'average-commission-rate',
+            'average-sale',
+            'commission-rate-chart',
+            'commission-rate-details',
+            'commission-rate-commission',
+            'product-sales-values',
+            'product-commissions',
+            'product-sales-chart',
+            'product-commission-chart',
+            'goals-progress',
+            'sales-evolution',
+            'sales-history'
+          ];
+          return data.keys().hasAll([
+              'name', 'enabled', 'visibleIndicators', 'indicatorOrder', 'sortOrder',
+              'createdByUid', 'updatedByUid', 'createdAt', 'updatedAt'
+            ])
+            && data.keys().hasOnly([
+              'name', 'enabled', 'visibleIndicators', 'indicatorOrder', 'sortOrder',
+              'createdByUid', 'updatedByUid', 'createdAt', 'updatedAt'
+            ])
+            && data.name is string
+            && data.name.size() >= 2
+            && data.name.size() <= 60
+            && data.enabled is bool
+            && data.visibleIndicators is list
+            && data.visibleIndicators.size() > 0
+            && data.visibleIndicators.size() <= allowedIndicators.size()
+            && data.visibleIndicators.hasOnly(allowedIndicators)
+            && data.visibleIndicators.toSet().size() == data.visibleIndicators.size()
+            && data.indicatorOrder is list
+            && data.indicatorOrder.size() == allowedIndicators.size()
+            && data.indicatorOrder.hasAll(allowedIndicators)
+            && data.indicatorOrder.hasOnly(allowedIndicators)
+            && data.indicatorOrder.toSet().size() == allowedIndicators.size()
+            && data.sortOrder is int
+            && data.sortOrder >= 0
+            && data.createdByUid is string
+            && data.createdByUid.size() > 0
+            && data.updatedByUid == request.auth.uid
+            && data.createdAt is timestamp
+            && data.updatedAt == request.time;
+        }
+
+        allow get: if isCompanyOwner(companyId)
+          || (isCompanyMember(companyId) && resource.data.enabled == true);
+        allow list: if isCompanyOwner(companyId)
+          || (isCompanyMember(companyId) && resource.data.enabled == true);
+        allow create: if isCompanyOwner(companyId)
+          && request.resource.data.createdByUid == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && validCustomScreen(request.resource.data);
+        allow update: if isCompanyOwner(companyId)
+          && request.resource.data.createdByUid == resource.data.createdByUid
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'enabled', 'visibleIndicators', 'indicatorOrder', 'sortOrder', 'updatedByUid', 'updatedAt'
+          ])
+          && validCustomScreen(request.resource.data);
+        allow delete: if isCompanyOwner(companyId);
       }
 
       match /sales/{saleId} {
