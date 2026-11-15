@@ -99,6 +99,36 @@ Toda tela autenticada associada a uma empresa deve usar as cores calculadas da e
 - Histórico deve respeitar usuário e empresa, filtros de período, paginação quando aplicável, totalizadores coerentes e exportação CSV.
 - Ações de edição e exclusão ficam no menu de ações do registro; exclusão exige confirmação. Editar abre modal e preserva o estado/fluxo sem recarregar a página.
 
+### Evolução planejada: cabeçalho de venda e múltiplos itens
+
+O responsável planeja mudar o modelo atual, que registra cada item vendido como um documento da coleção `companies/{companyId}/sales/{saleId}`, para permitir vários itens em uma mesma venda. Essa mudança ainda não foi implementada e deve ser tratada como uma migração de dados e de comportamento, não como simples alteração de formulário.
+
+#### Modelo atual confirmado no código
+
+- Cada documento atual de `sales` representa uma venda de um item e contém `userId`, `amountCents`, `commissionRateBps`, `commissionCents`, `soldAt`, `createdAt` e, opcionalmente, `notes` e `productId`.
+- Apesar de a interface exibir reais, os campos monetários persistidos hoje são centavos inteiros; a taxa é persistida em pontos-base. Preservar essa representação na migração, salvo decisão explícita e novo plano aprovado para alterá-la.
+- A coleção, os tipos atuais e os serviços de leitura, escrita, filtros, totais e paginação estão ligados a esse modelo. Indicadores e gráficos também agregam os documentos atuais.
+
+#### Estrutura desejada já descrita
+
+- Um documento de venda passa a representar o cabeçalho/transação, com ID interno, cliente, telefone, número externo da venda, data e hora, data de entrega, status, sinalizador de finalização e observação. Os campos descritos são opcionais.
+- A transação terá uma lista/campo de itens, cada qual preservando os dados de item que hoje formam um documento de venda, incluindo valor, taxa, comissão, data/hora quando aplicável e produto opcional.
+- Ao converter um registro legado, criar um cabeçalho com os campos de cabeçalho vazios e um item que preserve integralmente os valores originais. Não descartar nem recalcular silenciosamente valores históricos.
+- Ainda precisa ser decidido e aprovado se os itens serão embutidos no documento do cabeçalho ou armazenados em subcoleção, além de como será definida a fonte de verdade para data/hora quando cabeçalho e item puderem conter essa informação. Não assumir essas decisões durante a implementação.
+- O responsável ainda vai descrever o novo fluxo dos modais de criar e editar venda. Não implementar nem redesenhar esses fluxos até receber a descrição e aprovar um plano específico.
+
+#### Salvaguardas obrigatórias para planejar a migração
+
+- Antes de escrever o migrador, inspecionar novamente schema, serviços, regras do Firestore, índices e consumidores atuais; confirmar o volume e as limitações operacionais relevantes.
+- Preparar e apresentar um plano específico, com caminho de backup, formato dos novos documentos, estratégia de execução/retomada, regras de segurança, índices, adaptação de leitores e forma de rollback. A aprovação de documentação ou de uma etapa anterior não autoriza a migração nem etapas futuras.
+- Criar e verificar um backup imutável dos documentos antigos antes de qualquer alteração ou remoção. Preservar IDs e conteúdo original, incluindo timestamps e campos opcionais.
+- Tornar a conversão repetível/idempotente, para que uma interrupção e retomada não dupliquem vendas ou itens. Não apagar nem sobrescrever os dados antigos até validação e aprovação explícitas da conclusão.
+- Conferir por empresa e usuário as contagens, somas de venda, somas de comissão, taxas, produtos, observações e intervalos de datas entre origem, backup e destino. Registrar erros e diferenças sem expor dados pessoais em logs.
+- Definir explicitamente a semântica dos indicadores: somar valores e comissões dos itens; determinar se “quantidade de vendas” significa transações ou itens; filtrar por qual data; e como agrupar histórico, paginação e CSV. Não misturar totais de cabeçalho com itens nem contar ambos.
+- Atualizar leitura/escrita, schemas, tipos, histórico, filtros, paginação, exportação, todos os indicadores e gráficos, preferências/widgets quando necessário, e Firestore Security Rules para autorizar somente o usuário dono da transação na empresa atual.
+- Manter isolamento por empresa e por UID: uma venda e todos os seus itens pertencem ao mesmo usuário; proprietário da empresa não pode consultar itens de terceiros. Validar no backend/regras, não apenas na interface.
+- Validar primeiro em ambiente controlado/Firebase Emulator Suite sempre que possível; comparar resultados antes/depois com dados de referência. Deploy de regras, scripts contra dados reais, migração de produção, commit, push e publicação exigem autorização específica.
+
 ### Produtos
 
 - Produtos pertencem à empresa, não globalmente ao usuário.

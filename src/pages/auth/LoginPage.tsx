@@ -3,14 +3,16 @@ import { ArrowRight, LockKeyhole, Mail } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
-import { AuthHeading, AuthLayout } from '../../components/AuthLayout'
+import { AuthHeading, AuthLayout, GoogleSignInButton } from '../../components/AuthLayout'
 import { FormField } from '../../components/FormField'
 import { PublicOnlyRoute } from '../../components/ProtectedRoute'
+import { signInWithGoogleAccount } from '../../services/accountService'
 import { getAuthErrorMessage, signIn } from '../../services/authService'
 import { loginSchema, type LoginFormValues } from '../../schemas/authSchemas'
 
 export function LoginPage() {
   const [message, setMessage] = useState('')
+  const [googleLoading, setGoogleLoading] = useState(false)
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
   })
@@ -24,6 +26,18 @@ export function LoginPage() {
     }
   }
 
+  async function onGoogleSignIn() {
+    setMessage('')
+    setGoogleLoading(true)
+    try {
+      await signInWithGoogleAccount()
+    } catch (error) {
+      setMessage(getAuthErrorMessage(error))
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
   return (
     <PublicOnlyRoute>
       <AuthLayout>
@@ -32,6 +46,7 @@ export function LoginPage() {
           title="Entre na sua conta"
           description="Acesse suas informações e acompanhe sua rotina de vendas."
         />
+
         <form className="form-stack" onSubmit={handleSubmit(onSubmit)} noValidate>
           <FormField
             id="email"
@@ -64,6 +79,8 @@ export function LoginPage() {
         <p className="auth-switch">
           Ainda não tem uma conta?<Link className="text-link" to="/cadastro">Criar conta</Link>
         </p>
+        <div className="auth-divider"><span>ou continuar com</span></div>
+        <GoogleSignInButton onClick={onGoogleSignIn} loading={googleLoading} />
       </AuthLayout>
     </PublicOnlyRoute>
   )

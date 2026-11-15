@@ -1,7 +1,12 @@
 import { z } from 'zod'
+import { isValidPhoneNumber } from 'libphonenumber-js'
 
 const emailSchema = z.string().trim().email('Informe um e-mail válido.')
 const passwordSchema = z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres.')
+const optionalPhoneSchema = z.string().optional().or(z.literal('')).refine(
+  (value) => !value || isValidPhoneNumber(value),
+  'Informe um telefone válido ou deixe o campo vazio.',
+)
 
 export const loginSchema = z.object({
   email: emailSchema,
@@ -15,6 +20,7 @@ export const registerSchema = z.object({
     (value) => !value || value.replace(/\D/g, '').length === 11,
     'O CPF deve conter 11 dígitos.',
   ),
+  phone: optionalPhoneSchema,
   password: passwordSchema,
   confirmPassword: z.string(),
 }).refine((value) => value.password === value.confirmPassword, {
@@ -30,6 +36,7 @@ export const profileSchema = z.object({
     (value) => !value || value.replace(/\D/g, '').length === 11,
     'O CPF deve conter 11 dígitos.',
   ),
+  phone: optionalPhoneSchema,
 })
 
 export const emailChangeSchema = z.object({
