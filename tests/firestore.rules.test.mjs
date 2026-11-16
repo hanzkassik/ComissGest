@@ -28,6 +28,12 @@ const goalPromptSettings = {
   askForMonthlyGoalIfMissing: true,
   monthlyGoalReminderMessage: 'Você ainda não cadastrou uma meta para este mês. Que tal definir seu objetivo e acompanhar seu progresso?',
 }
+const defaultStatuses = [
+  { statusId: 'created', name: 'Criado', sortOrder: 0, isFinalizedIndicator: false },
+  { statusId: 'in-fabrication', name: 'Em fabricação', sortOrder: 1, isFinalizedIndicator: false },
+  { statusId: 'awaiting-delivery', name: 'Aguardando entrega', sortOrder: 2, isFinalizedIndicator: false },
+  { statusId: 'finished', name: 'Finalizado', sortOrder: 3, isFinalizedIndicator: true },
+]
 
 before(async () => {
   testEnvironment = await initializeTestEnvironment({
@@ -46,7 +52,7 @@ after(async () => {
   await testEnvironment.cleanup()
 })
 
-function makeOwnerBootstrap(db, { uid, companyId, ownerUid = uid }) {
+async function makeOwnerBootstrap(db, { uid, companyId, ownerUid = uid }) {
   const timestamp = serverTimestamp()
   const batch = writeBatch(db)
   batch.set(doc(db, 'companies', companyId), {
@@ -73,7 +79,26 @@ function makeOwnerBootstrap(db, { uid, companyId, ownerUid = uid }) {
     role: 'owner',
     createdAt: timestamp,
   })
-  return batch.commit()
+  await batch.commit()
+
+  const statusBatch = writeBatch(db)
+  const statusTimestamp = serverTimestamp()
+  for (const { statusId, ...status } of defaultStatuses) {
+    statusBatch.set(doc(db, 'companies', companyId, 'saleStatuses', statusId), {
+      ...status,
+      active: true,
+      usageCount: 0,
+      lastUsageChangeSaleId: null,
+      createdAt: statusTimestamp,
+      updatedAt: statusTimestamp,
+      createdBy: uid,
+      updatedBy: uid,
+    })
+  }
+  statusBatch.set(doc(db, 'companies', companyId, 'saleStatusSettings', 'defaults'), {
+    defaultsInitialized: true, createdAt: statusTimestamp, createdBy: uid,
+  })
+  return statusBatch.commit()
 }
 
 async function seedCompany(uid, companyId) {
@@ -104,7 +129,32 @@ async function seedCompany(uid, companyId) {
       role: 'owner',
       createdAt: timestamp,
     })
+    for (const { statusId, ...status } of defaultStatuses) {
+      await setDoc(doc(db, 'companies', companyId, 'saleStatuses', statusId), {
+        ...status,
+        active: true,
+        usageCount: 0,
+        lastUsageChangeSaleId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        createdBy: uid,
+        updatedBy: uid,
+      })
+    }
+    await setDoc(doc(db, 'companies', companyId, 'saleStatusSettings', 'defaults'), {
+      defaultsInitialized: true, createdAt: timestamp, createdBy: uid,
+    })
   })
+}
+
+function transactionSaleData(userId, soldAt = serverTimestamp(), statusId = undefined) {
+  return {
+    userId,
+    soldAt,
+    createdAt: serverTimestamp(),
+    ...(statusId ? { statusId } : {}),
+    items: [{ itemId: 'item-1', amountCents: 10000, commissionRateBps: 1000, commissionCents: 1000, quantity: 1 }],
+  }
 }
 
 test('permite criar empresa, proprietário e espelho de associação atomicamente', async () => {
@@ -259,18 +309,48 @@ test('nega que um usuário sem papel de proprietário altere a empresa', async (
   }))
 })
 
-test('permite registrar venda própria com comissão calculada e valores inteiros', async () => {
+test('permite registrar uma venda própria com itens embutidos e atualizar a contagem do status atomicamente', async () => {
   const companyId = 'company-alice'
   await seedCompany('alice', companyId)
   const db = testEnvironment.authenticatedContext('alice').firestore()
-  await assertSucceeds(setDoc(doc(db, 'companies', companyId, 'sales', 'sale-1'), {
-    userId: 'alice',
-    amountCents: 15075,
-    commissionRateBps: 1000,
-    commissionCents: 1508,
-    soldAt: serverTimestamp(),
-    createdAt: serverTimestamp(),
+  const saleId = 'sale-1'
+  const batch = writeBatch(db)
+  batch.set(doc(db, 'companies', companyId, 'sales', saleId), transactionSaleData('alice', serverTimestamp(), 'created'))
+  batch.update(doc(db, 'companies', companyId, 'saleStatuses', 'created'), {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(batch.commit())
+})
+
+test('status de venda é legível e administrável por qualquer membro da empresa', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'companies', companyId, 'members', 'bob'), {
+      uid: 'bob', companyId, role: 'member', createdAt: Timestamp.now(),
+    })
+  })
+  const ownerDb = testEnvironment.authenticatedContext('alice').firestore()
+  const memberDb = testEnvironment.authenticatedContext('bob').firestore()
+  const newStatus = {
+    name: 'Em separação', sortOrder: 4, active: true, isFinalizedIndicator: false,
+    usageCount: 0, lastUsageChangeSaleId: null, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    createdBy: 'alice', updatedBy: 'alice',
+  }
+  await assertSucceeds(getDocs(collection(memberDb, 'companies', companyId, 'saleStatuses')))
+  await assertSucceeds(setDoc(doc(ownerDb, 'companies', companyId, 'saleStatuses', 'packing'), newStatus))
+  await assertSucceeds(setDoc(doc(memberDb, 'companies', companyId, 'saleStatuses', 'quality-check'), {
+    ...newStatus, name: 'Conferência', createdBy: 'bob', updatedBy: 'bob',
   }))
+  await assertSucceeds(updateDoc(doc(memberDb, 'companies', companyId, 'saleStatuses', 'quality-check'), {
+    name: 'Conferido', updatedAt: serverTimestamp(), updatedBy: 'bob',
+  }))
+  await assertSucceeds(deleteDoc(doc(memberDb, 'companies', companyId, 'saleStatuses', 'quality-check')))
+  await assertSucceeds(deleteDoc(doc(ownerDb, 'companies', companyId, 'saleStatuses', 'created')))
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), 'companies', companyId, 'saleStatuses', 'finished'), { usageCount: 1 })
+  })
+  await assertFails(deleteDoc(doc(memberDb, 'companies', companyId, 'saleStatuses', 'finished')))
 })
 
 test('permite a data de venda escolhida no passado e nega datas futuras', async () => {
@@ -278,35 +358,22 @@ test('permite a data de venda escolhida no passado e nega datas futuras', async 
   await seedCompany('alice', companyId)
   const db = testEnvironment.authenticatedContext('alice').firestore()
 
-  await assertSucceeds(setDoc(doc(db, 'companies', companyId, 'sales', 'backdated-sale'), {
-    userId: 'alice', amountCents: 10000, commissionRateBps: 1000,
-    commissionCents: 1000, soldAt: Timestamp.fromDate(new Date('2025-05-20T15:00:00Z')),
-    createdAt: serverTimestamp(),
-  }))
+  await assertSucceeds(setDoc(doc(db, 'companies', companyId, 'sales', 'backdated-sale'), transactionSaleData('alice', Timestamp.fromDate(new Date('2025-05-20T15:00:00Z')))))
 
-  await assertFails(setDoc(doc(db, 'companies', companyId, 'sales', 'future-sale'), {
-    userId: 'alice', amountCents: 10000, commissionRateBps: 1000,
-    commissionCents: 1000, soldAt: Timestamp.fromDate(new Date('2099-05-20T15:00:00Z')),
-    createdAt: serverTimestamp(),
-  }))
+  await assertFails(setDoc(doc(db, 'companies', companyId, 'sales', 'future-sale'), transactionSaleData('alice', Timestamp.fromDate(new Date('2099-05-20T15:00:00Z')))))
 })
 
-test('nega comissão manipulada, valor fora do formato ou venda em nome de outro usuário', async () => {
+test('valida a estrutura geral do pedido e impede atribuir a venda a outro usuário', async () => {
   const companyId = 'company-alice'
   await seedCompany('alice', companyId)
   const db = testEnvironment.authenticatedContext('alice').firestore()
 
-  await assertFails(setDoc(doc(db, 'companies', companyId, 'sales', 'wrong-commission'), {
-    userId: 'alice', amountCents: 10000, commissionRateBps: 1000,
-    commissionCents: 5000, soldAt: serverTimestamp(), createdAt: serverTimestamp(),
+  await assertFails(setDoc(doc(db, 'companies', companyId, 'sales', 'invalid-items'), {
+    userId: 'alice', soldAt: serverTimestamp(), createdAt: serverTimestamp(), items: 'not-a-list',
   }))
-  await assertFails(setDoc(doc(db, 'companies', companyId, 'sales', 'wrong-cents'), {
-    userId: 'alice', amountCents: 100.5, commissionRateBps: 1000,
-    commissionCents: 101, soldAt: serverTimestamp(), createdAt: serverTimestamp(),
-  }))
-  await assertFails(setDoc(doc(db, 'companies', companyId, 'sales', 'other-user'), {
-    userId: 'bob', amountCents: 10000, commissionRateBps: 1000,
-    commissionCents: 1000, soldAt: serverTimestamp(), createdAt: serverTimestamp(),
+  await assertFails(setDoc(doc(db, 'companies', companyId, 'sales', 'other-user'), transactionSaleData('bob')))
+  await assertSucceeds(setDoc(doc(db, 'companies', companyId, 'sales', 'client-validated-item'), {
+    userId: 'alice', soldAt: serverTimestamp(), createdAt: serverTimestamp(), items: [{}],
   }))
 })
 
@@ -316,12 +383,10 @@ test('a consulta individual de vendas funciona e não revela vendas de terceiros
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore()
     await setDoc(doc(db, 'companies', companyId, 'sales', 'sale-alice'), {
-      userId: 'alice', amountCents: 10000, commissionRateBps: 1000,
-      commissionCents: 1000, soldAt: serverTimestamp(), createdAt: serverTimestamp(),
+      ...transactionSaleData('alice'),
     })
     await setDoc(doc(db, 'companies', companyId, 'sales', 'sale-bob'), {
-      userId: 'bob', amountCents: 20000, commissionRateBps: 1000,
-      commissionCents: 2000, soldAt: serverTimestamp(), createdAt: serverTimestamp(),
+      ...transactionSaleData('bob'),
     })
   })
 
@@ -341,16 +406,14 @@ test('permite editar os dados da própria venda e preserva a autoria e criação
   await seedCompany('alice', companyId)
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), 'companies', companyId, 'sales', 'sale-1'), {
-      userId: 'alice', amountCents: 10000, commissionRateBps: 1000,
-      commissionCents: 1000, soldAt: Timestamp.fromDate(new Date('2025-05-20T15:00:00Z')), createdAt: Timestamp.fromDate(new Date('2025-05-20T15:00:00Z')),
+      ...transactionSaleData('alice', Timestamp.fromDate(new Date('2025-05-20T15:00:00Z'))),
+      createdAt: Timestamp.fromDate(new Date('2025-05-20T15:00:00Z')),
     })
   })
   const db = testEnvironment.authenticatedContext('alice').firestore()
   await assertSucceeds(updateDoc(doc(db, 'companies', companyId, 'sales', 'sale-1'), {
     soldAt: Timestamp.fromDate(new Date('2025-06-20T15:00:00Z')),
-    amountCents: 20000,
-    commissionRateBps: 1500,
-    commissionCents: 3000,
+    items: [{ itemId: 'item-1', amountCents: 20000, commissionRateBps: 1500, commissionCents: 3000, quantity: 2 }],
   }))
   await assertFails(updateDoc(doc(db, 'companies', companyId, 'sales', 'sale-1'), { userId: 'bob' }))
   await assertFails(updateDoc(doc(db, 'companies', companyId, 'sales', 'sale-1'), { createdAt: serverTimestamp() }))
@@ -364,8 +427,8 @@ test('permite excluir somente a própria venda', async () => {
   await seedCompany('alice', companyId)
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore()
-    await setDoc(doc(db, 'companies', companyId, 'sales', 'sale-alice'), { userId: 'alice' })
-    await setDoc(doc(db, 'companies', companyId, 'sales', 'sale-bob'), { userId: 'bob' })
+    await setDoc(doc(db, 'companies', companyId, 'sales', 'sale-alice'), transactionSaleData('alice'))
+    await setDoc(doc(db, 'companies', companyId, 'sales', 'sale-bob'), transactionSaleData('bob'))
   })
   const db = testEnvironment.authenticatedContext('alice').firestore()
   await assertSucceeds(deleteDoc(doc(db, 'companies', companyId, 'sales', 'sale-alice')))
@@ -382,7 +445,8 @@ test('permite salvar a própria preferência de dashboard na empresa e bloqueia 
     indicatorOrder: [
       'period-summary', 'average-commission', 'average-commission-rate',
       'average-sale', 'commission-rate-chart', 'commission-rate-details',
-      'commission-rate-commission', 'goals-progress', 'sales-evolution', 'sales-history',
+      'commission-rate-commission', 'product-sales-values', 'product-commissions',
+      'product-sales-chart', 'product-commission-chart', 'goals-progress', 'sales-evolution', 'sales-history',
     ],
     updatedAt: serverTimestamp(),
   }

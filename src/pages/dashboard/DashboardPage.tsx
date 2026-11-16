@@ -148,10 +148,10 @@ function CommissionRateChartPanel({ chartData, period }: { chartData: ReturnType
             <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} />
             <YAxis type="category" dataKey="label" width={62} interval={0} tickLine={false} axisLine={false} tick={{ fill: 'var(--app-muted-text)', fontSize: 10 }} />
             <Tooltip
-              formatter={(value) => [`${Number(value ?? 0).toLocaleString('pt-BR')} ${Number(value ?? 0) === 1 ? 'venda' : 'vendas'}`, 'Quantidade']}
+              formatter={(value) => [`${Number(value ?? 0).toLocaleString('pt-BR')} ${Number(value ?? 0) === 1 ? 'item' : 'itens'}`, 'Itens']}
               contentStyle={{ border: '1px solid var(--app-border)', borderRadius: 10, background: 'var(--app-surface)', color: 'var(--app-text)', boxShadow: '0 8px 24px var(--brand-shadow)', fontSize: 12 }}
             />
-            <Bar dataKey="salesCount" name="Vendas" fill="var(--brand-primary)" radius={[0, 5, 5, 0]} barSize={13} />
+            <Bar dataKey="salesCount" name="Itens" fill="var(--brand-primary)" radius={[0, 5, 5, 0]} barSize={13} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -161,11 +161,11 @@ function CommissionRateChartPanel({ chartData, period }: { chartData: ReturnType
 
 function CommissionRateDetailsPanel({ summaries, period }: { summaries: ReturnType<typeof buildCommissionRateSummaryForRange>; period: DashboardInterval }) {
   return <section className="dashboard-panel dashboard-rate-panel" aria-labelledby="dashboard-rate-details-title">
-    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Layers3 size={14} /> Detalhamento</span><h2 id="dashboard-rate-details-title">Vendas por percentual de comissão</h2><p>{periodLabels[period]} · vendas, valores e comissões</p></div></div>
+    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Layers3 size={14} /> Detalhamento</span><h2 id="dashboard-rate-details-title">Vendas por percentual de comissão</h2><p>{periodLabels[period]} · itens, valores e comissões</p></div></div>
     {summaries.length === 0 ? <div className="dashboard-rate-empty">Ainda não há vendas neste período.</div> : (
       <div className="dashboard-rate-grid">
         {summaries.map((summary) => <article className="dashboard-rate-card" key={summary.commissionRateBps}>
-          <div className="dashboard-rate-card-heading"><strong>{(summary.commissionRateBps / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</strong><span>{summary.salesCount} {summary.salesCount === 1 ? 'venda' : 'vendas'}</span></div>
+          <div className="dashboard-rate-card-heading"><strong>{(summary.commissionRateBps / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</strong><span>{summary.salesCount} {summary.salesCount === 1 ? 'item' : 'itens'}</span></div>
           <div className="dashboard-rate-values">
             <div><span>Total vendido</span><strong>{formatBRLFromCents(summary.salesCents)}</strong></div>
             <div className="is-commission"><span>Comissões</span><strong>{formatBRLFromCents(summary.commissionCents)}</strong></div>
@@ -195,10 +195,10 @@ function ProductBreakdownPanel({ summaries, period, metric }: { summaries: Produ
   const title = isCommission ? 'Comissões por produto' : 'Vendas por produto'
   const headingId = isCommission ? 'dashboard-product-commissions-title' : 'dashboard-product-sales-title'
   return <section className="dashboard-panel dashboard-product-panel" aria-labelledby={headingId}>
-    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Package size={14} /> Produtos</span><h2 id={headingId}>{title}</h2><p>{periodLabels[period]} · {isCommission ? 'comissão gerada por produto' : 'valor vendido e quantidade de vendas'}</p></div></div>
+    <div className="dashboard-panel-heading"><div><span className="dashboard-section-label"><Package size={14} /> Produtos</span><h2 id={headingId}>{title}</h2><p>{periodLabels[period]} · {isCommission ? 'comissão gerada por produto' : 'valor vendido e quantidade de itens'}</p></div></div>
     {summaries.length === 0 ? <div className="dashboard-rate-empty">Ainda não há vendas neste período.</div> : <div className="dashboard-product-list">
       {summaries.map((summary) => <article className={`dashboard-product-row${isCommission ? ' is-commission' : ''}`} key={summary.productId ?? 'without-product'}>
-        <div><strong>{summary.productName}</strong><span>{summary.salesCount.toLocaleString('pt-BR')} {summary.salesCount === 1 ? 'venda' : 'vendas'}</span></div>
+        <div><strong>{summary.productName}</strong><span>{summary.salesCount.toLocaleString('pt-BR')} {summary.salesCount === 1 ? 'item' : 'itens'}</span></div>
         <strong>{formatBRLFromCents(isCommission ? summary.commissionCents : summary.salesCents)}</strong>
       </article>)}
     </div>}

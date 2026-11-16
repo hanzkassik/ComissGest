@@ -1,15 +1,29 @@
 import type { QueryDocumentSnapshot, Timestamp } from 'firebase/firestore'
 
-export interface Sale {
-  saleId: string
-  userId: string
+export interface SaleItem {
+  itemId: string
   amountCents: number
   commissionRateBps: number
   commissionCents: number
+  quantity: number
+  productId?: string
+  notes?: string
+}
+
+export interface Sale {
+  saleId: string
+  userId: string
   soldAt: Timestamp
   createdAt: Timestamp
+  statusId?: string
+  items: SaleItem[]
+  customerName?: string
+  customerPhone?: string
+  externalNumber?: string
+  deliveryAt?: Timestamp
   notes?: string
-  productId?: string
+  /** True only for documents that still use the legacy one-item format. */
+  legacyFormat?: boolean
 }
 
 export interface SaleFilters {

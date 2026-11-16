@@ -1,13 +1,23 @@
-import { CalendarDays, CircleAlert, ClipboardList, Download, MoreHorizontal, Pencil, Search, Trash2, X } from 'lucide-react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { CalendarDays, CircleAlert, ClipboardList, Clock3, Download, MoreHorizontal, Pencil, Plus, Receipt, Search, Trash2, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import type { QueryDocumentSnapshot } from 'firebase/firestore'
 import { deleteSale, getSalesForExport, getSalesPage, getSalesTotals, updateSale } from '../services/saleService'
 import { LoadingSkeleton } from './LoadingSkeleton'
-import { ProductSelectField } from './ProductSelectField'
+import { FormField } from './FormField'
+import { SaleItemsEditor } from './SaleItemsEditor'
+import { PhoneField } from './PhoneField'
 import { getCompanyProducts } from '../services/productService'
+import { getCompanySaleStatuses } from '../services/saleStatusService'
+import { SaleStatusQuickCreateModal } from './SaleStatusQuickCreateModal'
 import { saleSchema, type SaleFormValues } from '../schemas/saleSchemas'
 import type { Sale, SaleFilters, SaleTotals } from '../types/sale'
+import type { SaleStatus } from '../types/saleStatus'
+import { useCompany } from '../hooks/useCompany'
+import { useAuth } from '../hooks/useAuth'
 import { formatBRLFromCents, parseLocalDateStart, toLocalDateInputValue } from '../utils/currency'
+
 
 interface SalesHistoryProps {
   companyId: string
@@ -19,24 +29,37 @@ interface SalesHistoryProps {
 }
 
 function formatSaleDate(sale: Sale) {
-  return sale.soldAt.toDate().toLocaleString('pt-BR', {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  return sale.soldAt.toDate().toLocaleString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatRate(rateBps: number) {
   return `${(rateBps / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
 }
 
+function formatQuantity(quantity: number) {
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 6 }).format(quantity)
+}
+
 function saleFormValues(sale: Sale): SaleFormValues {
   const soldAt = sale.soldAt.toDate()
+  const delivery = sale.deliveryAt?.toDate()
   return {
+    customerName: sale.customerName ?? '',
+    customerPhone: sale.customerPhone ?? '',
+    externalNumber: sale.externalNumber ?? '',
     soldOn: `${soldAt.getFullYear()}-${String(soldAt.getMonth() + 1).padStart(2, '0')}-${String(soldAt.getDate()).padStart(2, '0')}`,
     soldTime: `${String(soldAt.getHours()).padStart(2, '0')}:${String(soldAt.getMinutes()).padStart(2, '0')}`,
-    amount: `${Math.floor(sale.amountCents / 100)},${String(sale.amountCents % 100).padStart(2, '0')}`,
-    commissionRate: `${Math.floor(sale.commissionRateBps / 100)},${String(sale.commissionRateBps % 100).padStart(2, '0')}`,
+    deliveryOn: delivery ? `${delivery.getFullYear()}-${String(delivery.getMonth() + 1).padStart(2, '0')}-${String(delivery.getDate()).padStart(2, '0')}` : '',
+    statusId: sale.statusId,
     notes: sale.notes ?? '',
-    productId: sale.productId ?? '',
+    items: sale.items.map((item) => ({
+      itemId: item.itemId,
+      amount: `${Math.floor(item.amountCents / 100)},${String(item.amountCents % 100).padStart(2, '0')}`,
+      commissionRate: `${Math.floor(item.commissionRateBps / 100)},${String(item.commissionRateBps % 100).padStart(2, '0')}`,
+      quantity: String(item.quantity).replace('.', ','),
+      productId: item.productId ?? '',
+      notes: item.notes ?? '',
+    })),
   }
 }
 
@@ -60,19 +83,27 @@ function filterDescription(filters: SaleFilters) {
 
 const csvNumber = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-function buildSalesCsv(companyName: string, sales: Sale[], totals: SaleTotals) {
+function buildSalesCsv(companyName: string, sales: Sale[], productNames: Record<string, string>, statuses: Record<string, SaleStatus>, totals: SaleTotals) {
   const rows = [
-    ['Empresa', 'Data e hora', 'Valor da venda (R$)', 'Comissão (%)', 'Comissão (R$)', 'Observação'],
-    ...sales.map((sale) => [
+    ['Empresa', 'Data e hora da venda', 'Cliente', 'Celular', 'Número da venda', 'Entrega prevista', 'Status', 'Observação do pedido', 'Produto', 'Quantidade', 'Valor do item (R$)', 'Comissão (%)', 'Comissão do item (R$)', 'Observação do item'],
+    ...sales.flatMap((sale) => sale.items.map((item) => [
       companyName,
       sale.soldAt.toDate().toLocaleString('pt-BR'),
-      csvNumber.format(sale.amountCents / 100),
-      csvNumber.format(sale.commissionRateBps / 100),
-      csvNumber.format(sale.commissionCents / 100),
+      sale.customerName ?? '',
+      sale.customerPhone ?? '',
+      sale.externalNumber ?? '',
+      sale.deliveryAt?.toDate().toLocaleDateString('pt-BR') ?? '',
+      (sale.statusId ? statuses[sale.statusId]?.name : undefined) ?? (sale.statusId ? 'Finalizado' : 'Sem status'),
       sale.notes ?? '',
-    ]),
+      item.productId ? productNames[item.productId] ?? 'Produto indisponível' : '',
+      formatQuantity(item.quantity),
+      csvNumber.format(item.amountCents / 100),
+      csvNumber.format(item.commissionRateBps / 100),
+      csvNumber.format(item.commissionCents / 100),
+      item.notes ?? '',
+    ])),
     [],
-    ['TOTAL DO PERÍODO', '', csvNumber.format(totals.amountCents / 100), '', csvNumber.format(totals.commissionCents / 100), `Quantidade de vendas: ${totals.count}`],
+    ['TOTAL DO PERÍODO', '', '', '', '', '', '', '', '', '', csvNumber.format(totals.amountCents / 100), '', csvNumber.format(totals.commissionCents / 100), `Quantidade de vendas: ${totals.count}`],
   ]
   return `\uFEFF${rows.map((row) => row.map(csvCell).join(';')).join('\r\n')}`
 }
@@ -84,8 +115,8 @@ function createFilename(companyName: string) {
 
 function summarizeSales(sales: Sale[]): SaleTotals {
   return sales.reduce<SaleTotals>((totals, sale) => ({
-    amountCents: totals.amountCents + sale.amountCents,
-    commissionCents: totals.commissionCents + sale.commissionCents,
+    amountCents: totals.amountCents + sale.items.reduce((sum, item) => sum + item.amountCents, 0),
+    commissionCents: totals.commissionCents + sale.items.reduce((sum, item) => sum + item.commissionCents, 0),
     count: totals.count + 1,
   }), { amountCents: 0, commissionCents: 0, count: 0 })
 }
@@ -93,6 +124,7 @@ function summarizeSales(sales: Sale[]): SaleTotals {
 export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, containerClassName = 'profile-card sales-history-card', initialFilters = {} }: SalesHistoryProps) {
   const [sales, setSales] = useState<Sale[]>([])
   const [productNames, setProductNames] = useState<Record<string, string>>({})
+  const [statuses, setStatuses] = useState<Record<string, SaleStatus>>({})
   const [totals, setTotals] = useState<SaleTotals | null>(null)
   const [cursor, setCursor] = useState<QueryDocumentSnapshot | null>(null)
   const [hasMore, setHasMore] = useState(false)
@@ -108,12 +140,14 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
   const [filters, setFilters] = useState<SaleFilters>(initialFilters)
   const [filterError, setFilterError] = useState('')
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
-  const [editValues, setEditValues] = useState<SaleFormValues | null>(null)
-  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
-  const [editError, setEditError] = useState('')
+  const [deletingSale, setDeletingSale] = useState<Sale | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [deletingSaleId, setDeletingSaleId] = useState('')
+  const [actionError, setActionError] = useState('')
   const requestVersion = useRef(0)
+  const { companies } = useCompany()
+  const { currentUser } = useAuth()
+  const canManageStatuses = companies.some((company) => company.companyId === companyId)
 
   const loadFirstPage = useCallback(async () => {
     const version = requestVersion.current + 1
@@ -125,10 +159,7 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
     setTotalsError('')
     setSales([])
     setTotals(null)
-    const [pageResult, totalResult] = await Promise.allSettled([
-      getSalesPage(companyId, userId, filters),
-      getSalesTotals(companyId, userId, filters),
-    ])
+    const [pageResult, totalResult] = await Promise.allSettled([getSalesPage(companyId, userId, filters), getSalesTotals(companyId, userId, filters)])
     if (requestVersion.current !== version) return
     if (pageResult.status === 'fulfilled') {
       setSales(pageResult.value.sales)
@@ -149,15 +180,14 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
     setLoadingTotals(false)
   }, [companyId, filters, userId])
 
-  useEffect(() => {
-    void Promise.resolve().then(loadFirstPage)
-  }, [loadFirstPage, refreshKey])
-
+  useEffect(() => { void Promise.resolve().then(loadFirstPage) }, [loadFirstPage, refreshKey])
   useEffect(() => {
     let active = true
-    void getCompanyProducts(companyId).then((products) => {
-      if (active) setProductNames(Object.fromEntries(products.map((product) => [product.productId, product.name])))
-    }).catch((error: unknown) => console.error('Falha ao carregar nomes de produtos para o histórico:', error))
+    void Promise.all([getCompanyProducts(companyId), getCompanySaleStatuses(companyId)]).then(([products, loadedStatuses]) => {
+      if (!active) return
+      setProductNames(Object.fromEntries(products.map((product) => [product.productId, product.name])))
+      setStatuses(Object.fromEntries(loadedStatuses.map((status) => [status.statusId, status])))
+    }).catch((error: unknown) => console.error('Falha ao carregar opções do histórico de vendas:', error))
     return () => { active = false }
   }, [companyId, refreshKey])
 
@@ -203,7 +233,7 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
       const allSales = await getSalesForExport(companyId, userId, filters)
       if (allSales.length === 0) return
       const exportTotals = summarizeSales(allSales)
-      const blob = new Blob([buildSalesCsv(companyName, allSales, exportTotals)], { type: 'text/csv;charset=utf-8' })
+      const blob = new Blob([buildSalesCsv(companyName, allSales, productNames, statuses, exportTotals)], { type: 'text/csv;charset=utf-8' })
       const downloadUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = downloadUrl
@@ -220,127 +250,99 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
     }
   }
 
-  function beginEdit(sale: Sale) {
-    setEditingSale(sale)
-    setEditValues(saleFormValues(sale))
-    setEditErrors({})
-    setEditError('')
-  }
-
-  async function saveEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!editingSale || !editValues) return
-    const parsed = saleSchema.safeParse(editValues)
-    if (!parsed.success) {
-      setEditErrors(Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), issue.message])))
-      return
-    }
+  async function saveEdit(values: SaleFormValues) {
+    if (!editingSale || !currentUser) return
     setSavingEdit(true)
-    setEditError('')
+    setActionError('')
     try {
-      await updateSale(companyId, editingSale.saleId, parsed.data)
+      await updateSale(companyId, editingSale.saleId, currentUser.uid, values)
       setEditingSale(null)
-      setEditValues(null)
       await loadFirstPage()
     } catch (error) {
       console.error('Falha ao editar venda:', error)
-      setEditError('Não foi possível salvar as alterações. Verifique a conexão e as regras do Firestore.')
+      setActionError('Não foi possível salvar as alterações. Verifique a conexão e as regras do Firestore.')
     } finally {
       setSavingEdit(false)
     }
   }
 
-  async function confirmDelete(sale: Sale) {
-    if (!window.confirm('Deseja excluir esta venda? Esta ação não pode ser desfeita.')) return
-    setDeletingSaleId(sale.saleId)
+  async function confirmDelete() {
+    if (!deletingSale || !currentUser) return
+    setDeletingSaleId(deletingSale.saleId)
+    setActionError('')
     try {
-      await deleteSale(companyId, sale.saleId)
+      await deleteSale(companyId, deletingSale.saleId, currentUser.uid)
+      setDeletingSale(null)
       await loadFirstPage()
     } catch (error) {
       console.error('Falha ao excluir venda:', error)
-      setSalesError('Não foi possível excluir esta venda. Verifique a conexão e tente novamente.')
+      setActionError('Não foi possível excluir esta venda. Verifique sua conexão e tente novamente.')
     } finally {
       setDeletingSaleId('')
     }
   }
 
   function saleActions(sale: Sale) {
-    return <details className="sale-actions-menu">
-      <summary aria-label={`Ações da venda de ${formatSaleDate(sale)}`} title="Ações da venda"><MoreHorizontal size={18} /></summary>
-      <div className="sale-actions-popover" role="menu">
-        <button type="button" role="menuitem" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); beginEdit(sale) }}><Pencil size={15} />Editar venda</button>
-        <button type="button" role="menuitem" className="is-danger" disabled={deletingSaleId === sale.saleId} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void confirmDelete(sale) }}><Trash2 size={15} />Excluir venda</button>
-      </div>
-    </details>
+    return <details className="sale-actions-menu"><summary aria-label={`Ações da venda de ${formatSaleDate(sale)}`} title="Ações da venda"><MoreHorizontal size={18} /></summary><div className="sale-actions-popover" role="menu">
+      <button type="button" role="menuitem" title={sale.legacyFormat ? 'Ao salvar, esta venda antiga será convertida para o formato atual.' : undefined} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setEditingSale(sale); setActionError('') }}><Pencil size={15} />Editar venda</button>
+      <button type="button" role="menuitem" className="is-danger" disabled={sale.legacyFormat || deletingSaleId === sale.saleId} title={sale.legacyFormat ? 'Disponível após a migração dos registros antigos.' : undefined} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setDeletingSale(sale) }}><Trash2 size={15} />Excluir venda</button>
+    </div></details>
   }
 
-  return (
-    <>
+  function saleHeader(sale: Sale) {
+    const status = sale.statusId ? statuses[sale.statusId] : undefined
+    const itemTotal = sale.items.reduce((total, item) => total + item.amountCents, 0)
+    const commissionTotal = sale.items.reduce((total, item) => total + item.commissionCents, 0)
+    return <div className="sales-order-header"><div className="sales-order-title"><strong>{sale.customerName || 'Venda sem cliente'}</strong><span>{formatSaleDate(sale)}{sale.externalNumber ? ` · Nº ${sale.externalNumber}` : ''}{sale.customerPhone ? ` · ${sale.customerPhone}` : ''}</span>{sale.notes && <small>{sale.notes}</small>}</div><span className={`sales-order-status${status?.active === false ? ' is-inactive' : ''}`}>{status?.name ?? (sale.statusId ? 'Finalizado' : 'Sem status')}{status?.active === false && <small>Status desativado</small>}</span><div className="sales-order-totals"><span>Venda <strong>{formatBRLFromCents(itemTotal)}</strong></span><span>Comissão <strong>{formatBRLFromCents(commissionTotal)}</strong></span></div>{saleActions(sale)}</div>
+  }
+
+  return <>
     <section className={containerClassName} aria-labelledby="sales-history-heading">
-      <div className="sale-card-title sales-history-title">
-        <span className="sale-card-icon"><ClipboardList size={18} /></span>
-        <div><h2 id="sales-history-heading">Histórico de vendas</h2><p>Somente suas vendas nesta empresa.</p></div>
-        <button className="quiet-button sales-export-button" type="button" onClick={() => void exportCsv()} disabled={exporting || loadingTotals || totals?.count === 0}>
-          <Download size={15} />{exporting ? 'Preparando…' : 'Exportar CSV'}
-        </button>
-      </div>
-      <form className="sales-filters" onSubmit={applyFilters}>
-        <label>De<input type="date" value={draftStart} onChange={(event) => setDraftStart(event.target.value)} /></label>
-        <label>Até<input type="date" value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} /></label>
-        <button className="quiet-button filter-button" type="submit"><Search size={15} /> Filtrar</button>
-        {(draftStart || draftEnd || filters.startDate || filters.endDate) && <button className="filter-clear" type="button" onClick={clearFilters}>Limpar</button>}
-      </form>
-      {filterError && <p className="field-error" role="alert">{filterError}</p>}
-      {totalsError && <p className="sales-history-total-error" role="status"><CircleAlert size={14} />{totalsError}</p>}
-      {salesError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{salesError}<button type="button" onClick={() => void loadFirstPage()}>Tentar novamente</button></p>}
-      {exportError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{exportError}</p>}
-      {loading ? <LoadingSkeleton variant="sales-history" page={false} /> : sales.length === 0 ? (
-        <div className="sales-empty-history"><span><CalendarDays size={20} /></span><h3>Nenhuma venda encontrada</h3><p>Não há vendas para o período selecionado.</p></div>
-      ) : (
-        <>
-          <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Produto</th><th>Valor</th><th>Comissão</th><th><span className="visually-hidden">Ações</span></th></tr></thead><tbody>
-            {sales.map((sale) => <tr key={sale.saleId}><td><strong>{formatSaleDate(sale)}</strong>{sale.notes && <span>{sale.notes}</span>}</td><td>{sale.productId ? productNames[sale.productId] ?? 'Produto indisponível' : '—'}</td><td>{formatBRLFromCents(sale.amountCents)}</td><td><strong>{formatBRLFromCents(sale.commissionCents)}</strong><span>{formatRate(sale.commissionRateBps)}</span></td><td>{saleActions(sale)}</td></tr>)}
-          </tbody></table></div>
-          <div className="sales-history-mobile-list">
-            {sales.map((sale) => <article className="sales-history-mobile-card" key={sale.saleId}>
-              <div className="sales-history-mobile-heading"><strong>{formatSaleDate(sale)}</strong><span>{formatRate(sale.commissionRateBps)}</span></div>
-              {sale.productId && <p className="sales-history-product-name">{productNames[sale.productId] ?? 'Produto indisponível'}</p>}
-              <div className="sales-history-mobile-commission"><span>Comissão</span><strong>{formatBRLFromCents(sale.commissionCents)}</strong></div>
-              <div className="sales-history-mobile-amount"><span>Venda</span><strong>{formatBRLFromCents(sale.amountCents)}</strong></div>
-              {sale.notes && <p>{sale.notes}</p>}
-              <div className="sales-history-mobile-actions">{saleActions(sale)}</div>
-            </article>)}
-          </div>
-          {hasMore && <button className="quiet-button load-more-button" type="button" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? 'Carregando…' : 'Carregar mais vendas'}</button>}
-        </>
-      )}
-      <div className="sales-period-total" aria-live="polite">
-        <div className="sales-period-total-heading"><strong>Total do período</strong><span>{filterDescription(filters)}</span></div>
-        <div className="sales-period-total-values">
-          <div><span>Vendas</span><strong>{loadingTotals ? '…' : totals ? formatBRLFromCents(totals.amountCents) : '—'}</strong></div>
-          <div className="is-commission"><span>Comissões</span><strong>{loadingTotals ? '…' : totals ? formatBRLFromCents(totals.commissionCents) : '—'}</strong></div>
-          <div><span>Registros</span><strong>{loadingTotals ? '…' : totals ? totals.count.toLocaleString('pt-BR') : '—'}</strong></div>
-        </div>
-      </div>
+      <div className="sale-card-title sales-history-title"><span className="sale-card-icon"><ClipboardList size={18} /></span><div><h2 id="sales-history-heading">Histórico de vendas</h2><p>Somente suas vendas nesta empresa.</p></div><button className="quiet-button sales-export-button" type="button" onClick={() => void exportCsv()} disabled={exporting || loadingTotals || totals?.count === 0}><Download size={15} />{exporting ? 'Preparando…' : 'Exportar CSV'}</button></div>
+      <form className="sales-filters" onSubmit={applyFilters}><label>De<input type="date" max={toLocalDateInputValue()} value={draftStart} onChange={(event) => setDraftStart(event.target.value)} /></label><label>Até<input type="date" max={toLocalDateInputValue()} value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} /></label><button className="quiet-button filter-button" type="submit"><Search size={15} /> Filtrar</button>{(draftStart || draftEnd || filters.startDate || filters.endDate) && <button className="filter-clear" type="button" onClick={clearFilters}>Limpar</button>}</form>
+      {filterError && <p className="field-error" role="alert">{filterError}</p>}{totalsError && <p className="sales-history-total-error" role="status"><CircleAlert size={14} />{totalsError}</p>}{salesError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{salesError}<button type="button" onClick={() => void loadFirstPage()}>Tentar novamente</button></p>}{exportError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{exportError}</p>}{actionError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{actionError}</p>}
+      {loading ? <LoadingSkeleton variant="sales-history" page={false} /> : sales.length === 0 ? <div className="sales-empty-history"><span><CalendarDays size={20} /></span><h3>Nenhuma venda encontrada</h3><p>Não há vendas para o período selecionado.</p></div> : <>
+        <div className="sales-order-list">{sales.map((sale) => <article className="sales-order-card" key={sale.saleId}>{saleHeader(sale)}{sale.deliveryAt && <div className="sales-order-delivery">Entrega prevista: {sale.deliveryAt.toDate().toLocaleDateString('pt-BR')}</div>}<div className="sales-order-items">{sale.items.map((item) => <div className="sales-order-item" key={item.itemId}><div className="sales-order-item-name"><strong>{item.productId ? productNames[item.productId] ?? 'Produto indisponível' : 'Item sem produto'}</strong><span>Quantidade: {formatQuantity(item.quantity)}</span>{item.notes && <small>{item.notes}</small>}</div><div><span>Venda</span><strong>{formatBRLFromCents(item.amountCents)}</strong></div><div className="is-commission"><span>Comissão <small>{formatRate(item.commissionRateBps)}</small></span><strong>{formatBRLFromCents(item.commissionCents)}</strong></div></div>)}</div></article>)}</div>
+        {hasMore && <button className="quiet-button load-more-button" type="button" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? 'Carregando…' : 'Carregar mais vendas'}</button>}
+      </>}
+      <div className="sales-period-total" aria-live="polite"><div className="sales-period-total-heading"><strong>Total do período</strong><span>{filterDescription(filters)}</span></div><div className="sales-period-total-values"><div><span>Vendas</span><strong>{loadingTotals ? '…' : totals ? formatBRLFromCents(totals.amountCents) : '—'}</strong></div><div className="is-commission"><span>Comissões</span><strong>{loadingTotals ? '…' : totals ? formatBRLFromCents(totals.commissionCents) : '—'}</strong></div><div><span>Quantidade de vendas</span><strong>{loadingTotals ? '…' : totals ? totals.count.toLocaleString('pt-BR') : '—'}</strong></div></div></div>
     </section>
-    {editingSale && editValues && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingEdit) setEditingSale(null) }}>
-      <section className="company-modal sale-edit-modal" role="dialog" aria-modal="true" aria-labelledby="sale-edit-title">
-        <div className="company-modal-heading"><span className="create-icon"><Pencil size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={() => setEditingSale(null)} disabled={savingEdit}><X size={18} /></button></div>
-        <h2 id="sale-edit-title">Editar venda</h2><p>Atualize os dados da venda. A comissão será recalculada ao salvar.</p>
-        <form className="form-stack" onSubmit={(event) => void saveEdit(event)} noValidate>
-          <div className="sale-datetime-fields">
-            <label className="field-label">Data da venda<input type="date" max={toLocalDateInputValue()} value={editValues.soldOn} onChange={(event) => setEditValues({ ...editValues, soldOn: event.target.value })} />{editErrors.soldOn && <span className="field-error">{editErrors.soldOn}</span>}</label>
-            <label className="field-label">Hora da venda<input type="time" value={editValues.soldTime} onChange={(event) => setEditValues({ ...editValues, soldTime: event.target.value })} />{editErrors.soldTime && <span className="field-error">{editErrors.soldTime}</span>}</label>
-          </div>
-          <ProductSelectField companyId={companyId} value={editValues.productId} onChange={(value) => setEditValues({ ...editValues, productId: value })} onProductCreated={(product) => setProductNames((current) => ({ ...current, [product.productId]: product.name }))} />
-          <label className="field-label">Valor da venda (R$)<input inputMode="decimal" value={editValues.amount} onChange={(event) => setEditValues({ ...editValues, amount: event.target.value })} />{editErrors.amount && <span className="field-error">{editErrors.amount}</span>}</label>
-          <label className="field-label">Comissão (%)<input inputMode="decimal" value={editValues.commissionRate} onChange={(event) => setEditValues({ ...editValues, commissionRate: event.target.value })} />{editErrors.commissionRate && <span className="field-error">{editErrors.commissionRate}</span>}</label>
-          <label className="field-label">Observação <span className="field-optional">(opcional)</span><textarea rows={3} maxLength={500} placeholder="Detalhes sobre esta venda" value={editValues.notes ?? ''} onChange={(event) => setEditValues({ ...editValues, notes: event.target.value })} />{editErrors.notes && <span className="field-error">{editErrors.notes}</span>}</label>
-          {editError && <p className="sales-history-total-error" role="alert"><CircleAlert size={14} />{editError}</p>}
-          <button className="primary-button" type="submit" disabled={savingEdit}>{savingEdit ? 'Salvando…' : 'Salvar alterações'}</button>
-        </form>
-      </section>
-    </div>}
-    </>
-  )
+    {editingSale && <SaleEditModal key={editingSale.saleId} sale={editingSale} companyId={companyId} statuses={Object.values(statuses)} canManageStatuses={canManageStatuses} saving={savingEdit} onClose={() => !savingEdit && setEditingSale(null)} onSave={saveEdit} onProductCreated={(productId, name) => setProductNames((current) => ({ ...current, [productId]: name }))} onStatusCreated={(status) => setStatuses((current) => ({ ...current, [status.statusId]: status }))} />}
+    {deletingSale && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deletingSaleId) setDeletingSale(null) }}><section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="sale-delete-title"><div className="company-modal-heading"><span className="create-icon"><Trash2 size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={() => setDeletingSale(null)} disabled={Boolean(deletingSaleId)}><X size={18} /></button></div><h2 id="sale-delete-title">Excluir venda?</h2><p>Esta ação excluirá o cabeçalho e todos os {deletingSale.items.length} item(ns) desta venda.</p>{actionError && <p className="field-error" role="alert">{actionError}</p>}<div className="sale-delete-actions"><button className="quiet-button" type="button" onClick={() => setDeletingSale(null)} disabled={Boolean(deletingSaleId)}>Cancelar</button><button className="primary-button" type="button" onClick={() => void confirmDelete()} disabled={Boolean(deletingSaleId)}>{deletingSaleId ? 'Excluindo…' : 'Excluir venda'}</button></div></section></div>}
+  </>
+}
+
+function SaleEditModal({ sale, companyId, statuses, canManageStatuses, saving, onClose, onSave, onProductCreated, onStatusCreated }: {
+  sale: Sale
+  companyId: string
+  statuses: SaleStatus[]
+  canManageStatuses: boolean
+  saving: boolean
+  onClose: () => void
+  onSave: (values: SaleFormValues) => Promise<void>
+  onProductCreated: (productId: string, name: string) => void
+  onStatusCreated: (status: SaleStatus) => void
+}) {
+  const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<SaleFormValues>({ resolver: zodResolver(saleSchema), defaultValues: saleFormValues(sale) })
+  const items = useWatch({ control, name: 'items' }) ?? []
+  const [quickStatusOpen, setQuickStatusOpen] = useState(false)
+  const activeStatuses = statuses.filter((status) => status.active)
+  const currentStatus = statuses.find((status) => status.statusId === sale.statusId)
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose() }}><section className="company-modal sale-edit-modal sale-order-edit-modal" role="dialog" aria-modal="true" aria-labelledby="sale-edit-title">
+    <div className="company-modal-heading"><span className="create-icon"><Pencil size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={onClose} disabled={saving}><X size={18} /></button></div>
+    <h2 id="sale-edit-title">Editar venda</h2><p>Atualize os dados do pedido e seus itens.</p>
+    <form className="form-stack" onSubmit={handleSubmit((values) => void onSave(values))} noValidate>
+      <FormField id={`edit-sale-customer-${sale.saleId}`} label="Nome do cliente (opcional)" icon={UserRound} maxLength={160} placeholder="Nome do cliente" registration={register('customerName')} />
+      <Controller control={control} name="customerPhone" render={({ field }) => <PhoneField id={`edit-sale-phone-${sale.saleId}`} value={field.value ?? ''} onChange={field.onChange} onBlur={field.onBlur} />} />
+      <FormField id={`edit-sale-number-${sale.saleId}`} label="Número da venda (opcional)" icon={Receipt} maxLength={100} placeholder="Identificador externo" registration={register('externalNumber')} />
+      <div className="sale-datetime-fields"><FormField id={`edit-sale-date-${sale.saleId}`} label="Data da venda" icon={CalendarDays} type="date" max={toLocalDateInputValue()} registration={register('soldOn')} /><FormField id={`edit-sale-time-${sale.saleId}`} label="Hora da venda" icon={Clock3} type="time" registration={register('soldTime')} /></div>
+      <FormField id={`edit-sale-delivery-${sale.saleId}`} label="Data prevista de entrega (opcional)" icon={CalendarDays} type="date" registration={register('deliveryOn')} />
+      <div className="sale-status-select-wrap"><label className="field-label" htmlFor={`edit-sale-status-${sale.saleId}`}>Status</label><div className="sale-status-select-control"><select id={`edit-sale-status-${sale.saleId}`} {...register('statusId')}><option value={sale.statusId ?? ''} disabled={currentStatus?.active === false}>{currentStatus?.name ?? (sale.statusId ? 'Status atual' : 'Sem status')}{currentStatus?.active === false ? ' (desativado)' : ''}</option>{activeStatuses.filter((status) => status.statusId !== sale.statusId).map((status) => <option key={status.statusId} value={status.statusId}>{status.name}</option>)}</select>{canManageStatuses && <button type="button" aria-label="Adicionar status" onClick={() => setQuickStatusOpen(true)}><Plus size={17} /></button>}</div></div>
+      <div className="sale-form-section"><div className="sale-items-heading"><div><h3>Itens da venda</h3><p>O valor informado já representa o total do item. A quantidade não altera os cálculos.</p></div></div><SaleItemsEditor companyId={companyId} items={items} onItemsChange={(next) => setValue('items', next, { shouldDirty: true, shouldValidate: true })} onProductCreated={onProductCreated} />{errors.items?.message && <span className="field-error" role="alert">{errors.items.message}</span>}</div>
+      <label className="notes-field">Observação do pedido <span>(opcional)</span><textarea rows={3} maxLength={500} {...register('notes')} /></label>
+      {Object.keys(errors).length > 0 && <p className="field-error" role="alert">Confira os dados dos campos e tente novamente.</p>}
+      <div className="sale-delete-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={saving}>Cancelar</button><button className="primary-button" type="submit" disabled={saving}>{saving ? 'Salvando…' : 'Salvar alterações'}</button></div>
+    </form>
+    {quickStatusOpen && <SaleStatusQuickCreateModal companyId={companyId} onClose={() => setQuickStatusOpen(false)} onCreated={(status) => { onStatusCreated(status); setValue('statusId', status.statusId, { shouldDirty: true }); setQuickStatusOpen(false) }} />}
+  </section></div>
 }

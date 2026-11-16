@@ -1,5 +1,6 @@
 import type { CommissionRateSummary, DashboardChartPoint, DashboardCustomRange, DashboardInterval, DashboardOverview, DashboardPeriodBounds, DashboardPeriodSummary } from '../types/dashboard'
 import type { Sale } from '../types/sale'
+import { sumSaleItems } from './saleTotals'
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -58,8 +59,8 @@ function summarize(sales: Sale[], start: Date, end: Date): DashboardPeriodSummar
     return soldAt >= start && soldAt < end
   })
   return filtered.reduce<DashboardPeriodSummary>((summary, sale) => ({
-    salesCents: summary.salesCents + sale.amountCents,
-    commissionCents: summary.commissionCents + sale.commissionCents,
+    salesCents: summary.salesCents + sumSaleItems(sale, 'amountCents'),
+    commissionCents: summary.commissionCents + sumSaleItems(sale, 'commissionCents'),
     count: summary.count + 1,
   }), { salesCents: 0, commissionCents: 0, count: 0 })
 }
@@ -143,8 +144,8 @@ function makeChart(sales: Sale[], interval: DashboardInterval, now: Date, custom
     }
     const bucket = buckets[bucketMap.get(key) ?? -1]
     if (!bucket) continue
-    bucket.salesCents += sale.amountCents
-    bucket.commissionCents += sale.commissionCents
+    bucket.salesCents += sumSaleItems(sale, 'amountCents')
+    bucket.commissionCents += sumSaleItems(sale, 'commissionCents')
   }
   return buckets
 }
@@ -200,16 +201,18 @@ export function buildCommissionRateSummaryForRange(sales: Sale[], start: Date, e
   for (const sale of sales) {
     const soldAt = sale.soldAt.toDate()
     if (soldAt < start || soldAt >= end) continue
-    const summary = summaries.get(sale.commissionRateBps) ?? {
-      commissionRateBps: sale.commissionRateBps,
-      salesCount: 0,
-      salesCents: 0,
-      commissionCents: 0,
+    for (const item of sale.items) {
+      const summary = summaries.get(item.commissionRateBps) ?? {
+        commissionRateBps: item.commissionRateBps,
+        salesCount: 0,
+        salesCents: 0,
+        commissionCents: 0,
+      }
+      summary.salesCount += 1
+      summary.salesCents += item.amountCents
+      summary.commissionCents += item.commissionCents
+      summaries.set(item.commissionRateBps, summary)
     }
-    summary.salesCount += 1
-    summary.salesCents += sale.amountCents
-    summary.commissionCents += sale.commissionCents
-    summaries.set(sale.commissionRateBps, summary)
   }
 
   return [...summaries.values()].sort((left, right) => left.commissionRateBps - right.commissionRateBps)

@@ -3,6 +3,7 @@ import { firestore } from '../firebase/firestore'
 import { DEFAULT_MONTHLY_GOAL_REMINDER_MESSAGE, type CompanyFormValues, type CompanySettingsValues } from '../schemas/companySchemas'
 import type { CompanyMembership, CompanyRole } from '../types/company'
 import { DEFAULT_BRAND_DARK_PRIMARY, DEFAULT_BRAND_PRIMARY } from '../utils/brandColors'
+import { ensureDefaultSaleStatuses } from './saleStatusService'
 
 export async function getUserCompanies(userId: string): Promise<CompanyMembership[]> {
   const memberships = await getDocs(collection(firestore, 'users', userId, 'memberships'))
@@ -77,8 +78,8 @@ export async function createOwnedCompany(
     role: 'owner',
     createdAt: timestamp,
   })
-
   await batch.commit()
+  await ensureDefaultSaleStatuses(companyId, userId)
   return companyId
 }
 

@@ -1,5 +1,6 @@
 import type { Goal, GoalMetrics } from '../types/goal'
 import type { Sale } from '../types/sale'
+import { sumSaleItems } from './saleTotals'
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -45,7 +46,7 @@ export function calculateGoalMetrics(goal: Goal, sales: Sale[], now = new Date()
   const today = startOfDay(now)
   const realizedCents = sales.reduce((total, sale) => {
     const soldAt = sale.soldAt.toDate()
-    return soldAt >= start && soldAt < endExclusive ? total + sale.amountCents : total
+    return soldAt >= start && soldAt < endExclusive ? total + sumSaleItems(sale, 'amountCents') : total
   }, 0)
   const elapsedEnd = today < end ? today : end
   const elapsedBusinessDays = today < start ? 0 : countBusinessDays(start, elapsedEnd)

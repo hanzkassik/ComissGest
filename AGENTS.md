@@ -99,9 +99,9 @@ Toda tela autenticada associada a uma empresa deve usar as cores calculadas da e
 - Histórico deve respeitar usuário e empresa, filtros de período, paginação quando aplicável, totalizadores coerentes e exportação CSV.
 - Ações de edição e exclusão ficam no menu de ações do registro; exclusão exige confirmação. Editar abre modal e preserva o estado/fluxo sem recarregar a página.
 
-### Evolução planejada: cabeçalho de venda e múltiplos itens
+### Vendas com cabeçalho e múltiplos itens
 
-O responsável planeja mudar o modelo atual, que registra cada item vendido como um documento da coleção `companies/{companyId}/sales/{saleId}`, para permitir vários itens em uma mesma venda. Essa mudança ainda não foi implementada e deve ser tratada como uma migração de dados e de comportamento, não como simples alteração de formulário.
+O modelo novo está implementado no código da branch de evolução, mas a migração dos dados de produção ainda não foi executada.
 
 #### Modelo atual confirmado no código
 
@@ -109,25 +109,47 @@ O responsável planeja mudar o modelo atual, que registra cada item vendido como
 - Apesar de a interface exibir reais, os campos monetários persistidos hoje são centavos inteiros; a taxa é persistida em pontos-base. Preservar essa representação na migração, salvo decisão explícita e novo plano aprovado para alterá-la.
 - A coleção, os tipos atuais e os serviços de leitura, escrita, filtros, totais e paginação estão ligados a esse modelo. Indicadores e gráficos também agregam os documentos atuais.
 
-#### Estrutura desejada já descrita
+#### Modelo novo aprovado e implementado
 
-- Um documento de venda passa a representar o cabeçalho/transação, com ID interno, cliente, telefone, número externo da venda, data e hora, data de entrega, status, sinalizador de finalização e observação. Os campos descritos são opcionais.
-- A transação terá uma lista/campo de itens, cada qual preservando os dados de item que hoje formam um documento de venda, incluindo valor, taxa, comissão, data/hora quando aplicável e produto opcional.
-- Ao converter um registro legado, criar um cabeçalho com os campos de cabeçalho vazios e um item que preserve integralmente os valores originais. Não descartar nem recalcular silenciosamente valores históricos.
-- Ainda precisa ser decidido e aprovado se os itens serão embutidos no documento do cabeçalho ou armazenados em subcoleção, além de como será definida a fonte de verdade para data/hora quando cabeçalho e item puderem conter essa informação. Não assumir essas decisões durante a implementação.
-- O responsável ainda vai descrever o novo fluxo dos modais de criar e editar venda. Não implementar nem redesenhar esses fluxos até receber a descrição e aprovar um plano específico.
+- Cada documento `companies/{companyId}/sales/{saleId}` é um cabeçalho e contém a lista `items` embutida. Os campos do cabeçalho incluem `userId`, `soldAt`, `createdAt` e, opcionalmente, `customerName`, `customerPhone`, `externalNumber`, `deliveryAt`, `statusId` e `notes`.
+- Os itens preservam `amountCents`, `commissionRateBps`, `commissionCents`, `quantity`, `productId` opcional, `notes` opcional e `itemId`.
+- A data e hora determinantes são as do cabeçalho (`soldAt`). O formulário usa agora como padrão e permite edição.
+- Os campos do cabeçalho são opcionais, exceto data/hora de venda exigida pelo modelo e a lista com pelo menos um item.
+- `amountCents` representa o valor total informado para aquele item. A comissão é calculada sobre esse total. `quantity` é apenas informativa: não participa de valor, comissão, totais ou indicadores. No formulário, quantidade deve ser maior que zero; dados legados recebem quantidade 1.
+- Quantidade de vendas significa quantidade de documentos/cabeçalhos. Indicadores e gráficos por percentual e por produto contam e agregam itens. Valores e comissões totais somam os itens. A data usada nos filtros e indicadores é `soldAt` do cabeçalho.
+- O histórico agrupa cada cabeçalho e mostra cliente, total de venda, total de comissão e seus itens. CSV exporta uma linha por item e repete os dados do cabeçalho.
+- Excluir uma venda remove o documento, portanto todos os itens embutidos. Remover um item durante edição exige confirmação.
+- Observação do cabeçalho e observação de cada item são independentes.
+- Vendas antigas serão migradas mantendo IDs: cada documento antigo vira cabeçalho com campos novos vazios/opcionais e um item com valor, taxa, comissão, data/hora, produto e observação originais preservados; quantidade legada é 1. O status legado será `finished` (Finalizado). Não recalcular valores históricos.
+- A migração não foi executada. Registros legados continuam identificados e exibidos; a edição converte o registro para o formato novo ao salvar, preservando o ID da venda e do item. Exclusão de registros legados permanece indisponível até a migração.
+- Enquanto a versão antiga do aplicativo puder gravar vendas, as regras também devem aceitar criar, editar e excluir registros legados válidos no formato atual antigo, sempre pelo próprio usuário. Remover essa compatibilidade exige confirmar que o cliente antigo não está mais em uso e planejar a mudança.
+
+#### Status da venda
+
+- Status são cadastrados por empresa. Status iniciais: `Criado`, `Em fabricação`, `Aguardando entrega` e `Finalizado`; o formulário novo começa em `Criado` quando disponível.
+- Qualquer membro autenticado com acesso à empresa pode criar, renomear, reordenar, desativar, reativar e excluir status. O botão de criação rápida e a tela de gerenciamento também ficam disponíveis a todos os membros; as regras do Firestore devem validar a associação à empresa.
+- Status usados por vendas não podem ser excluídos. A tela informa que estão em uso; status desativados continuam visíveis nas vendas existentes com indicação, mas não podem ser selecionados em novas vendas ou como novo status na edição.
+- Cada status possui `isFinalizedIndicator`. Status criados pelo usuário começam com a flag desmarcada; o padrão `Finalizado` começa marcada. Se várias flags estiverem marcadas, o status mais ao fim da ordem prevalece. Se nenhuma estiver marcada, prevalece o último status da ordem.
+- Renomear um status atualiza a exibição nas vendas que o referenciam.
+
+#### Validação e limite dos itens
+
+- Não existe limite fixo de itens; vale o limite de tamanho do documento do Firestore.
+- As Firestore Security Rules validam autenticação, associação à empresa, propriedade/UID do cabeçalho, status e estrutura geral da lista. Por decisão expressa do responsável, as regras não iteram nem validam cada campo/valor dentro de cada item; a validação detalhada ocorre no cliente. Uma escrita manipulada pode persistir item malformado ou comissão inconsistente. Não apresentar isso como validação integral do conteúdo dos itens.
+- Cada venda e seus itens permanecem isolados por empresa e pelo UID do usuário que criou a venda; o papel de proprietário não concede acesso às vendas dos demais usuários.
 
 #### Salvaguardas obrigatórias para planejar a migração
 
 - Antes de escrever o migrador, inspecionar novamente schema, serviços, regras do Firestore, índices e consumidores atuais; confirmar o volume e as limitações operacionais relevantes.
+- Na inspeção de produção de 2026-11-15, foram encontradas 5 empresas e nenhum documento em `saleStatuses` nas 5. A leitura da tela de vendas inicializa os status padrão quando aberta por qualquer membro com acesso; a migração deve garantir essa inicialização em todas as empresas que receberão vendas com `statusId: finished`, antes de converter qualquer venda.
 - Preparar e apresentar um plano específico, com caminho de backup, formato dos novos documentos, estratégia de execução/retomada, regras de segurança, índices, adaptação de leitores e forma de rollback. A aprovação de documentação ou de uma etapa anterior não autoriza a migração nem etapas futuras.
 - Criar e verificar um backup imutável dos documentos antigos antes de qualquer alteração ou remoção. Preservar IDs e conteúdo original, incluindo timestamps e campos opcionais.
 - Tornar a conversão repetível/idempotente, para que uma interrupção e retomada não dupliquem vendas ou itens. Não apagar nem sobrescrever os dados antigos até validação e aprovação explícitas da conclusão.
 - Conferir por empresa e usuário as contagens, somas de venda, somas de comissão, taxas, produtos, observações e intervalos de datas entre origem, backup e destino. Registrar erros e diferenças sem expor dados pessoais em logs.
-- Definir explicitamente a semântica dos indicadores: somar valores e comissões dos itens; determinar se “quantidade de vendas” significa transações ou itens; filtrar por qual data; e como agrupar histórico, paginação e CSV. Não misturar totais de cabeçalho com itens nem contar ambos.
+- A semântica dos indicadores já foi definida acima: totais monetários somam itens; quantidade de vendas conta cabeçalhos; indicadores por percentual/produto contam itens; a data de filtro é a do cabeçalho; histórico é agrupado por cabeçalho; CSV tem uma linha por item.
 - Atualizar leitura/escrita, schemas, tipos, histórico, filtros, paginação, exportação, todos os indicadores e gráficos, preferências/widgets quando necessário, e Firestore Security Rules para autorizar somente o usuário dono da transação na empresa atual.
 - Manter isolamento por empresa e por UID: uma venda e todos os seus itens pertencem ao mesmo usuário; proprietário da empresa não pode consultar itens de terceiros. Validar no backend/regras, não apenas na interface.
-- Validar primeiro em ambiente controlado/Firebase Emulator Suite sempre que possível; comparar resultados antes/depois com dados de referência. Deploy de regras, scripts contra dados reais, migração de produção, commit, push e publicação exigem autorização específica.
+- Validar primeiro em ambiente controlado/Firebase Emulator Suite sempre que possível; comparar resultados antes/depois com dados de referência. Deploy de regras, scripts que escrevam em dados reais, migração de produção, commit, push e publicação exigem autorização específica.
 
 ### Produtos
 

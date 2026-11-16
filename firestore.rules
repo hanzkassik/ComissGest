@@ -18,6 +18,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/companies/$(companyId)/products/$(productId);
     }
 
+    function saleStatusPath(companyId, statusId) {
+      return /databases/$(database)/documents/companies/$(companyId)/saleStatuses/$(statusId);
+    }
+
+    function salePath(companyId, saleId) {
+      return /databases/$(database)/documents/companies/$(companyId)/sales/$(saleId);
+    }
+
     function userMembershipPath(userId, companyId) {
       return /databases/$(database)/documents/users/$(userId)/memberships/$(companyId);
     }
@@ -281,7 +289,7 @@ service cloud.firestore {
       }
 
       match /sales/{saleId} {
-        function hasValidProductReference(data) {
+        function hasValidLegacyProductReference(data) {
           return !data.keys().hasAny(['productId'])
             || data.productId == null
             || (data.productId is string
@@ -290,7 +298,7 @@ service cloud.firestore {
               && exists(productPath(companyId, data.productId)));
         }
 
-        function hasValidCommission(amountCents, rateBps, commissionCents) {
+        function hasValidLegacyCommission(amountCents, rateBps, commissionCents) {
           let centsRemainder = amountCents % 10000;
           let wholeUnits = (amountCents - centsRemainder) / 10000;
           let partialCommission = commissionCents - (wholeUnits * rateBps);
@@ -300,12 +308,12 @@ service cloud.firestore {
             && ((partialCommission + 1) * 10000) > roundedPartialBase;
         }
 
-        function hasValidSaleData(data) {
+        function isValidLegacySale(data) {
           return data.keys().hasAll([
               'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt'
             ])
             && data.keys().hasOnly([
-              'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt', 'notes', 'productId'
+              'userId', 'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'createdAt', 'productId', 'notes'
             ])
             && data.userId == request.auth.uid
             && data.amountCents is int
@@ -321,26 +329,196 @@ service cloud.firestore {
             && data.createdAt is timestamp
             && (!data.keys().hasAny(['notes'])
               || (data.notes is string && data.notes.size() <= 500))
-            && hasValidProductReference(data)
-            && hasValidCommission(data.amountCents, data.commissionRateBps, data.commissionCents);
+            && hasValidLegacyProductReference(data)
+            && hasValidLegacyCommission(data.amountCents, data.commissionRateBps, data.commissionCents);
+        }
+
+        function hasValidSaleHeader(data) {
+          return data.keys().hasAll(['userId', 'soldAt', 'createdAt', 'items'])
+            && data.keys().hasOnly([
+              'userId', 'soldAt', 'createdAt', 'statusId', 'items', 'customerName', 'customerPhone',
+              'externalNumber', 'deliveryAt', 'notes'
+            ])
+            && data.userId == request.auth.uid
+            && data.soldAt is timestamp
+            && data.createdAt is timestamp
+            && data.items is list
+            && data.items.size() >= 1
+            && (!data.keys().hasAny(['statusId'])
+              || (data.statusId is string
+                && data.statusId.matches('^[A-Za-z0-9_-]{1,128}$')
+                && exists(saleStatusPath(companyId, data.statusId))))
+            && (!data.keys().hasAny(['customerName']) || (data.customerName is string && data.customerName.size() <= 160))
+            && (!data.keys().hasAny(['customerPhone']) || (data.customerPhone is string && data.customerPhone.size() <= 32))
+            && (!data.keys().hasAny(['externalNumber']) || (data.externalNumber is string && data.externalNumber.size() <= 100))
+            && (!data.keys().hasAny(['deliveryAt']) || data.deliveryAt is timestamp)
+            && (!data.keys().hasAny(['notes']) || (data.notes is string && data.notes.size() <= 500));
+        }
+
+        function statusCountUpdated(statusId, expectedCount) {
+          let statusRef = saleStatusPath(companyId, statusId);
+          return existsAfter(statusRef)
+            && getAfter(statusRef).data.usageCount == expectedCount
+            && getAfter(statusRef).data.lastUsageChangeSaleId == saleId;
+        }
+
+        function statusIsActive(statusId) {
+          let statusRef = saleStatusPath(companyId, statusId);
+          return exists(statusRef) && get(statusRef).data.active == true;
+        }
+
+        function statusCountersMatchCreate(data) {
+          return !data.keys().hasAny(['statusId'])
+            || (statusIsActive(data.statusId)
+              && statusCountUpdated(data.statusId, get(saleStatusPath(companyId, data.statusId)).data.usageCount + 1));
+        }
+
+        function statusCountersMatchUpdate(data) {
+          let hadStatus = resource.data.keys().hasAny(['statusId']);
+          let hasStatus = data.keys().hasAny(['statusId']);
+          let oldStatusId = hadStatus ? resource.data.statusId : '';
+          let nextStatusId = hasStatus ? data.statusId : '';
+          return oldStatusId == nextStatusId
+            || ((!hadStatus || statusCountUpdated(oldStatusId,
+                get(saleStatusPath(companyId, oldStatusId)).data.usageCount - 1))
+              && (!hasStatus || (statusIsActive(nextStatusId)
+                && statusCountUpdated(nextStatusId,
+                  get(saleStatusPath(companyId, nextStatusId)).data.usageCount + 1))));
+        }
+
+        function hasValidNewSale(data, isCreate) {
+          return hasValidSaleHeader(data)
+            && (isCreate ? statusCountersMatchCreate(data) : statusCountersMatchUpdate(data));
+        }
+
+        function validSaleUpdateShape() {
+          let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+          let currentSaleKeys = [
+            'soldAt', 'statusId', 'items', 'customerName', 'customerPhone', 'externalNumber', 'deliveryAt', 'notes'
+          ];
+          let legacyConversionKeys = [
+            'soldAt', 'statusId', 'items', 'customerName', 'customerPhone', 'externalNumber', 'deliveryAt', 'notes',
+            'amountCents', 'commissionRateBps', 'commissionCents', 'productId'
+          ];
+          return (resource.data.keys().hasAny(['items']) && changedKeys.hasOnly(currentSaleKeys))
+            || (isValidLegacySale(resource.data) && changedKeys.hasOnly(legacyConversionKeys));
         }
 
         allow get, list: if isCompanyMember(companyId)
           && resource.data.userId == request.auth.uid;
         allow create: if isCompanyMember(companyId)
-          && hasValidSaleData(request.resource.data)
           && request.resource.data.soldAt <= request.time
-          && request.resource.data.createdAt == request.time;
+          && request.resource.data.createdAt == request.time
+          && (hasValidNewSale(request.resource.data, true)
+            || isValidLegacySale(request.resource.data));
         allow update: if isCompanyMember(companyId)
           && resource.data.userId == request.auth.uid
-          && hasValidSaleData(request.resource.data)
           && request.resource.data.soldAt <= request.time
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.userId == resource.data.userId
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'notes', 'productId']);
+          && ((hasValidNewSale(request.resource.data, false)
+              && validSaleUpdateShape())
+            || (isValidLegacySale(resource.data)
+              && isValidLegacySale(request.resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'amountCents', 'commissionRateBps', 'commissionCents', 'soldAt', 'notes', 'productId'
+              ])));
         allow delete: if isCompanyMember(companyId)
-          && resource.data.userId == request.auth.uid;
+          && resource.data.userId == request.auth.uid
+          && (isValidLegacySale(resource.data)
+            || (resource.data.items is list
+              && (!resource.data.keys().hasAny(['statusId'])
+                || statusCountUpdated(resource.data.statusId,
+                  get(saleStatusPath(companyId, resource.data.statusId)).data.usageCount - 1))));
+      }
+
+      match /saleStatuses/{statusId} {
+        function validStatus(data) {
+          return data.keys().hasAll([
+              'name', 'sortOrder', 'active', 'isFinalizedIndicator', 'usageCount', 'lastUsageChangeSaleId',
+              'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+            ])
+            && data.keys().hasOnly([
+              'name', 'sortOrder', 'active', 'isFinalizedIndicator', 'usageCount', 'lastUsageChangeSaleId',
+              'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+            ])
+            && data.name is string && data.name.size() >= 2 && data.name.size() <= 60
+            && data.sortOrder is int && data.sortOrder >= 0
+            && data.active is bool
+            && data.isFinalizedIndicator is bool
+            && data.usageCount is int && data.usageCount >= 0
+            && (data.lastUsageChangeSaleId == null || (data.lastUsageChangeSaleId is string && data.lastUsageChangeSaleId.size() <= 128))
+            && data.createdAt is timestamp && data.updatedAt is timestamp
+            && data.createdBy is string && data.updatedBy is string;
+        }
+
+        function validUsageChange() {
+          let affected = request.resource.data.diff(resource.data).affectedKeys();
+          let saleRef = salePath(companyId, request.resource.data.lastUsageChangeSaleId);
+          let hasBefore = exists(saleRef);
+          let hasAfter = existsAfter(saleRef);
+          return affected.hasOnly(['usageCount', 'lastUsageChangeSaleId', 'updatedAt'])
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.lastUsageChangeSaleId is string
+            && (( !hasBefore && hasAfter
+                  && getAfter(saleRef).data.keys().hasAny(['statusId'])
+                  && getAfter(saleRef).data.statusId == statusId
+                  && request.resource.data.usageCount == resource.data.usageCount + 1)
+              || (hasBefore && !hasAfter
+                  && get(saleRef).data.keys().hasAny(['statusId'])
+                  && get(saleRef).data.statusId == statusId
+                  && request.resource.data.usageCount == resource.data.usageCount - 1)
+              || (hasBefore && hasAfter
+                  && ((get(saleRef).data.keys().hasAny(['statusId'])
+                      && get(saleRef).data.statusId == statusId
+                      && (!getAfter(saleRef).data.keys().hasAny(['statusId'])
+                        || getAfter(saleRef).data.statusId != statusId)
+                      && request.resource.data.usageCount == resource.data.usageCount - 1)
+                    || ((!get(saleRef).data.keys().hasAny(['statusId'])
+                        || get(saleRef).data.statusId != statusId)
+                      && getAfter(saleRef).data.keys().hasAny(['statusId'])
+                      && getAfter(saleRef).data.statusId == statusId
+                      && request.resource.data.usageCount == resource.data.usageCount + 1))));
+        }
+
+        allow get, list: if isCompanyMember(companyId);
+        allow create: if isCompanyMember(companyId)
+          && validStatus(request.resource.data)
+          && request.resource.data.usageCount == 0
+          && request.resource.data.lastUsageChangeSaleId == null
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow update: if (isCompanyMember(companyId)
+            && validStatus(request.resource.data)
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.updatedBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'sortOrder', 'active', 'isFinalizedIndicator', 'updatedAt', 'updatedBy'
+            ]))
+          || (isCompanyMember(companyId)
+            && validStatus(request.resource.data)
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.updatedBy == resource.data.updatedBy
+            && request.resource.data.usageCount >= 0
+            && validUsageChange());
+        allow delete: if isCompanyMember(companyId) && resource.data.usageCount == 0;
+      }
+
+      match /saleStatusSettings/{settingId} {
+        allow get, list: if isCompanyMember(companyId);
+        allow create: if settingId == 'defaults'
+          && isCompanyMember(companyId)
+          && request.resource.data.keys().hasAll(['defaultsInitialized', 'createdAt', 'createdBy'])
+          && request.resource.data.keys().hasOnly(['defaultsInitialized', 'createdAt', 'createdBy'])
+          && request.resource.data.defaultsInitialized == true
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update, delete: if false;
       }
 
       match /goals/{goalId} {
