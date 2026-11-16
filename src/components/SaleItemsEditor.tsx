@@ -16,6 +16,7 @@ interface SaleItemsEditorProps {
   items: SaleItemFormValues[]
   onItemsChange: (items: SaleItemFormValues[]) => void
   onProductCreated?: (productId: string, name: string) => void
+  collapsibleDraft?: boolean
 }
 
 function previewCommission(amount: string, rate: string) {
@@ -37,10 +38,11 @@ function formatQuantity(quantity: string) {
   return Number.isFinite(value) ? value.toLocaleString('pt-BR', { maximumFractionDigits: 6 }) : quantity
 }
 
-export function SaleItemsEditor({ companyId, items, onItemsChange, onProductCreated }: SaleItemsEditorProps) {
+export function SaleItemsEditor({ companyId, items, onItemsChange, onProductCreated, collapsibleDraft = false }: SaleItemsEditorProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [removingIndex, setRemovingIndex] = useState<number | null>(null)
   const [productNames, setProductNames] = useState<Record<string, string>>({})
+  const [draftOpen, setDraftOpen] = useState(!collapsibleDraft)
   const { register, handleSubmit, reset, setValue, control, formState: { errors } } = useForm<SaleItemFormValues>({
     resolver: zodResolver(saleItemSchema),
     defaultValues: { ...emptyItem },
@@ -63,11 +65,25 @@ export function SaleItemsEditor({ companyId, items, onItemsChange, onProductCrea
     onItemsChange(next)
     setEditingIndex(null)
     reset({ ...emptyItem })
+    if (collapsibleDraft) setDraftOpen(false)
+  }
+
+  function openNewItem() {
+    setEditingIndex(null)
+    reset({ ...emptyItem })
+    setDraftOpen(true)
   }
 
   function editItem(index: number) {
     setEditingIndex(index)
     reset({ ...emptyItem, ...items[index] })
+    setDraftOpen(true)
+  }
+
+  function cancelEdit() {
+    setEditingIndex(null)
+    reset({ ...emptyItem })
+    if (collapsibleDraft) setDraftOpen(false)
   }
 
   function confirmRemoveItem() {
@@ -75,8 +91,7 @@ export function SaleItemsEditor({ companyId, items, onItemsChange, onProductCrea
     const next = items.filter((_, index) => index !== removingIndex)
     onItemsChange(next)
     if (editingIndex === removingIndex) {
-      setEditingIndex(null)
-      reset({ ...emptyItem })
+      cancelEdit()
     } else if (editingIndex !== null && editingIndex > removingIndex) {
       setEditingIndex(editingIndex - 1)
     }
@@ -91,10 +106,12 @@ export function SaleItemsEditor({ companyId, items, onItemsChange, onProductCrea
         {item.notes && <p>{item.notes}</p>}
         <div className="sale-saved-item-actions"><button className="quiet-button" type="button" onClick={() => editItem(index)}><Pencil size={14} /> Editar</button><button className="quiet-button sale-item-remove" type="button" onClick={() => setRemovingIndex(index)}><Trash2 size={14} /> Remover</button></div>
       </article>)}
-      {items.length === 0 && <p className="sale-items-empty">Nenhum item salvo. Preencha o formulário abaixo e selecione <strong>Salvar item</strong>.</p>}
+      {items.length === 0 && <p className="sale-items-empty">Nenhum item salvo. {collapsibleDraft ? 'Adicione um item para começar.' : <>Preencha o formulário abaixo e selecione <strong>Salvar item</strong>.</>}</p>}
     </div>
 
-    <div className="sale-item-draft" role="group" aria-label={editingIndex === null ? 'Novo item' : `Editando item ${editingIndex + 1}`}>
+    {collapsibleDraft && !draftOpen && <button className="quiet-button sale-item-add-button" type="button" onClick={openNewItem}><Plus size={16} />Adicionar item</button>}
+
+    {draftOpen && <div className="sale-item-draft" role="group" aria-label={editingIndex === null ? 'Novo item' : `Editando item ${editingIndex + 1}`}>
       <h4>{editingIndex === null ? 'Novo item' : `Editando item ${editingIndex + 1}`}</h4>
       <ProductSelectField companyId={companyId} value={draft.productId ?? ''} onChange={(value) => setValue('productId', value, { shouldDirty: true, shouldValidate: true })} error={errors.productId?.message} onProductCreated={(product) => onProductCreated?.(product.productId, product.name)} />
       <label className="field-label">Valor total do item (R$)<input inputMode="decimal" placeholder="0,00" autoComplete="off" {...register('amount')} />{errors.amount?.message && <span className="field-error">{errors.amount.message}</span>}</label>
@@ -102,8 +119,8 @@ export function SaleItemsEditor({ companyId, items, onItemsChange, onProductCrea
       <div className="commission-rate-picker"><div className="commission-rate-picker-heading"><span>Atalhos de comissão</span><span>1% a 10%</span></div><div className="commission-rate-presets" role="group" aria-label="Percentuais de comissão do item">{commissionRatePresets.map((rate) => <button className={Number((draft.commissionRate ?? '').replace(',', '.')) === rate ? 'is-selected' : ''} type="button" key={rate} aria-pressed={Number((draft.commissionRate ?? '').replace(',', '.')) === rate} onClick={() => setValue('commissionRate', String(rate).replace('.', ','), { shouldDirty: true, shouldValidate: true })}>{`${rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}</button>)}</div></div>
       <label className="notes-field">Observação do item <span>(opcional)</span><textarea rows={2} maxLength={500} placeholder="Detalhes deste item" {...register('notes')} />{errors.notes?.message && <span className="field-error">{errors.notes.message}</span>}</label>
       {draft.amount && <div className="sale-item-commission-preview"><span>Comissão estimada do item</span><strong>{formatBRLFromCents(commission)}</strong></div>}
-      <div className="sale-item-draft-actions">{editingIndex !== null && <button className="quiet-button" type="button" onClick={() => { setEditingIndex(null); reset({ ...emptyItem }) }}>Cancelar edição</button>}<button className="primary-button" type="button" onClick={() => void handleSubmit(saveItem)()}><Plus size={16} />Salvar item</button></div>
-    </div>
+      <div className="sale-item-draft-actions">{editingIndex !== null && <button className="quiet-button" type="button" onClick={cancelEdit}>Cancelar edição</button>}<button className="primary-button" type="button" onClick={() => void handleSubmit(saveItem)()}><Plus size={16} />Salvar item</button></div>
+    </div>}
 
     {removingIndex !== null && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setRemovingIndex(null) }}><section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="sale-editor-remove-title"><h2 id="sale-editor-remove-title">Remover item?</h2><p>O item {removingIndex + 1} será removido deste pedido.</p><div className="sale-delete-actions"><button className="quiet-button" type="button" onClick={() => setRemovingIndex(null)}>Cancelar</button><button className="primary-button" type="button" onClick={confirmRemoveItem}>Remover item</button></div></section></div>}
   </div>

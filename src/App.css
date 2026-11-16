@@ -1353,6 +1353,7 @@
 .sale-saved-items{display:grid;gap:9px;min-width:0}
 .sale-items-empty{margin:0;padding:12px;border:1px dashed var(--app-border);border-radius:10px;color:var(--app-muted-text);font-size:11px;line-height:1.5}
 .sale-items-empty strong{color:var(--brand-text)}
+.sale-item-add-button{justify-self:start;min-height:36px;padding-inline:10px;font-size:11px}
 .sale-saved-item{display:grid;gap:9px;min-width:0;padding:12px;border:1px solid var(--app-border);border-radius:11px;background:var(--app-surface)}
 .sale-saved-item-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
 .sale-saved-item-heading strong{overflow:hidden;color:var(--app-text);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
