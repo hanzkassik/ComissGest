@@ -36,10 +36,10 @@ export function ProductSelectField({ companyId, value = '', onChange, error: fie
 
   return <div className="product-select-field">
     <label className="field-label" htmlFor={`sale-product-${companyId}`}>Produto <span className="field-optional">(opcional)</span></label>
-    <div className="product-select-control"><span className="product-select-icon"><Package size={16} /></span><select id={`sale-product-${companyId}`} value={value} onChange={(event) => onChange(event.target.value)} disabled={loading} aria-invalid={Boolean(fieldError)}>
+    <div className="sale-select-control"><span className="sale-select-icon"><Package size={16} /></span><select id={`sale-product-${companyId}`} value={value} onChange={(event) => onChange(event.target.value)} disabled={loading} aria-invalid={Boolean(fieldError)}>
       <option value="">{loading ? 'Carregando produtos…' : 'Sem produto'}</option>
       {products.map((product) => <option key={product.productId} value={product.productId}>{product.name}</option>)}
-    </select><button type="button" className="product-add-button" aria-label="Cadastrar produto" title="Cadastrar produto" onClick={() => setModalOpen(true)}><Plus size={17} /></button></div>
+    </select><button type="button" className="sale-select-add-button" aria-label="Cadastrar produto" title="Cadastrar produto" onClick={() => setModalOpen(true)}><Plus size={17} /></button></div>
     {fieldError && <span className="field-error">{fieldError}</span>}
     {error && <span className="product-load-error"><CircleAlert size={13} />{error}<button type="button" onClick={() => void load()}>Tentar novamente</button></span>}
     {modalOpen && <ProductCreateModal companyId={companyId} onClose={() => setModalOpen(false)} onCreated={onCreated} />}

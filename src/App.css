@@ -932,13 +932,13 @@
 
 .product-select-field{display:grid;gap:7px;min-width:0}
 .product-select-field>.field-label{display:block;color:var(--app-text);font-size:13px;font-weight:650}
-.product-select-control{display:grid;grid-template-columns:38px minmax(0,1fr) 44px;min-height:46px;align-items:center;overflow:hidden;border:1px solid var(--app-border);border-radius:10px;background:var(--app-surface)}
-.product-select-control:focus-within{border-color:var(--brand-primary);box-shadow:0 0 0 3px var(--brand-shadow)}
-.product-select-icon{display:grid;place-items:center;color:var(--app-muted-text)}
-.product-select-control select{width:100%;min-width:0;height:44px;border:0;outline:0;color:var(--brand-text);background:transparent;font:inherit;font-size:13px}
-.product-select-control option{color:var(--brand-text);background:var(--app-surface)}
-.product-add-button{display:grid;width:34px;height:34px;place-items:center;justify-self:center;border:1px solid var(--app-border);border-radius:9px;color:var(--brand-text);background:var(--brand-soft);cursor:pointer}
-.product-add-button:hover{border-color:var(--brand-primary);background:var(--brand-soft)}
+.sale-select-control{display:grid;grid-template-columns:38px minmax(0,1fr) 44px;min-height:46px;align-items:center;overflow:hidden;border:1px solid var(--app-border);border-radius:10px;background:var(--app-surface)}
+.sale-select-control:focus-within{border-color:var(--brand-primary);box-shadow:0 0 0 3px var(--brand-shadow)}
+.sale-select-icon{display:grid;place-items:center;color:var(--app-muted-text)}
+.sale-select-control select{width:100%;min-width:0;height:44px;border:0;outline:0;color:var(--brand-text);background:transparent;font:inherit;font-size:13px}
+.sale-select-control option{color:var(--brand-text);background:var(--app-surface)}
+.sale-select-add-button{display:grid;width:34px;height:34px;place-items:center;justify-self:center;border:1px solid var(--app-border);border-radius:9px;color:var(--brand-text);background:var(--brand-soft);cursor:pointer}
+.sale-select-add-button:hover{border-color:var(--brand-primary);background:var(--brand-soft)}
 .product-load-error{display:flex;flex-wrap:wrap;align-items:center;gap:5px;color:var(--status-error-text);font-size:11px}
 .product-load-error button{padding:0;border:0;color:inherit;background:transparent;cursor:pointer;font:inherit;font-weight:700;text-decoration:underline}
 .product-create-modal .field-label{display:grid;gap:7px;color:var(--app-text);font-size:13px;font-weight:650}
@@ -962,12 +962,12 @@
 .products-empty .primary-button{padding:0 14px}
 :root[data-theme='dark'] .products-page{color:var(--app-text);background:var(--app-soft)}
 :root[data-theme='dark'] .product-select-field>.field-label,:root[data-theme='dark'] .product-create-modal .field-label{color:var(--app-text)}
-:root[data-theme='dark'] .product-select-control{border-color:var(--brand-border);background:var(--app-soft)}
-:root[data-theme='dark'] .product-select-control select{color:var(--app-text);color-scheme:dark}
-:root[data-theme='dark'] .product-select-control select,:root[data-theme='dark'] .product-select-control option{color:var(--app-text);background-color:var(--app-soft)}
-:root[data-theme='dark'] .product-select-control option:checked{color:var(--app-text);background-color:var(--app-soft)}
-:root[data-theme='dark'] .product-add-button{border-color:var(--brand-border);color:var(--brand-text);background:var(--app-soft)}
-:root[data-theme='dark'] .product-add-button:hover{border-color:var(--brand-border);background:var(--app-soft)}
+:root[data-theme='dark'] .sale-select-control{border-color:var(--brand-border);background:var(--app-soft)}
+:root[data-theme='dark'] .sale-select-control select{color:var(--app-text);color-scheme:dark}
+:root[data-theme='dark'] .sale-select-control select,:root[data-theme='dark'] .sale-select-control option{color:var(--app-text);background-color:var(--app-soft)}
+:root[data-theme='dark'] .sale-select-control option:checked{color:var(--app-text);background-color:var(--app-soft)}
+:root[data-theme='dark'] .sale-select-add-button{border-color:var(--brand-border);color:var(--brand-text);background:var(--app-soft)}
+:root[data-theme='dark'] .sale-select-add-button:hover{border-color:var(--brand-border);background:var(--app-soft)}
 :root[data-theme='dark'] .product-create-modal .field-label input{border-color:var(--brand-border);color:var(--app-text);background:var(--app-soft)}
 :root[data-theme='dark'] .products-heading h1,:root[data-theme='dark'] .products-empty h2{color:var(--app-text)}
 :root[data-theme='dark'] .products-heading p,:root[data-theme='dark'] .products-empty p{color:var(--app-muted-text)}
@@ -987,22 +987,22 @@
 .dashboard-settings-list li,.company-goal-reminder-toggle,.product-card{border-color:var(--app-border);background:var(--app-surface-raised)}
 .dashboard-period-summary-values>div,.dashboard-goal-metrics>div,.dashboard-period-segments,.company-card-icon,
 .company-empty-icon,.create-icon,.sale-card-icon,.dashboard-period-icon,.dashboard-metric-icon,.sales-empty-icon,
-.sales-empty-history>span,.goals-empty>span,.goal-icon,.product-add-button{background:var(--app-soft)}
+.sales-empty-history>span,.goals-empty>span,.goal-icon,.sale-select-add-button{background:var(--app-soft)}
 .input-wrap input,.notes-field textarea,.sales-filters input,.dashboard-custom-date-fields input,
 .goal-modal .field-label input,.goal-modal textarea,.sale-edit-modal .field-label input,.sale-edit-modal .field-label textarea,
-.product-select-control,.product-create-modal .field-label input,.company-goal-reminder-message textarea{border-color:var(--app-border);background:var(--app-control)}
+.sale-select-control,.product-create-modal .field-label input,.company-goal-reminder-message textarea{border-color:var(--app-border);background:var(--app-control)}
 .quiet-button,.company-select-button,.company-active-button,.company-manage-button,.sale-actions-menu>summary,
 .modal-close-button,.dashboard-period-filter,.dashboard-settings-button{border-color:var(--app-border)}
 .company-card.is-active{border-color:var(--brand-primary);background:var(--app-soft);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-primary) 12%,transparent)}
 .company-active-button,.dashboard-period-summary-values .is-primary,.dashboard-goal-metrics>div.is-highlight{border-color:var(--brand-border);background:var(--app-soft)}
 .dashboard-period-segments button:hover,.goal-card-heading .company-actions-popover button:hover,
-.sale-actions-popover button:hover,.company-actions-popover button:hover,.product-add-button:hover{background:var(--app-hover)}
+.sale-actions-popover button:hover,.company-actions-popover button:hover,.sale-select-add-button:hover{background:var(--app-hover)}
 .dashboard-rate-card-heading strong,.dashboard-rate-values .is-commission strong,.dashboard-rate-commission-row strong,
 .dashboard-rate-commission-row span,.dashboard-product-row>strong,.dashboard-product-row.is-commission>strong,
 .dashboard-period-summary-values .is-primary strong,.dashboard-goal-achieved,.dashboard-goal-metrics>div.is-highlight>strong,
 .goal-target,.sales-history-card .sale-commission,.sales-history-card .commission-value{color:var(--brand-text)}
 .dashboard-period-icon,.dashboard-metric-icon,.sale-card-icon,.sales-empty-icon,.sales-empty-history>span,
-.goals-empty>span,.goal-icon,.company-empty-icon,.company-card-icon,.create-icon,.product-add-button{color:var(--brand-text)}
+.goals-empty>span,.goal-icon,.company-empty-icon,.company-card-icon,.create-icon,.sale-select-add-button{color:var(--brand-text)}
 .dashboard-period-filter,.dashboard-period-segments{border-color:var(--app-border);background:var(--app-surface-raised)}
 .dashboard-period-segments button.is-selected{border-color:var(--brand-primary);background:var(--brand-primary);color:var(--brand-on-primary)}
 .company-modal,.dashboard-settings-modal,.sale-edit-modal,.goal-modal,.product-create-modal{border-color:var(--app-border);background:var(--app-surface);color:var(--app-text)}
@@ -1022,7 +1022,7 @@
 .dashboard-account-popover,.company-actions-popover,.sale-actions-popover{border-color:var(--app-border);background:var(--app-surface);color:var(--app-text)}
 .dashboard-company-options button:hover,.dashboard-company-options button.is-current,
 .dashboard-account-action:hover,.app-navigation-links a:hover,.app-navigation-links a.is-current{background:var(--app-hover);color:var(--brand-text)}
-.product-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
+.sale-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
 .dashboard-period-summary-values .is-primary,.dashboard-goal-metrics>div.is-highlight{border-color:var(--brand-border)}
 .company-preview-theme.is-light{border-color:var(--app-border);background:var(--app-surface)}
 .company-preview-card{border-color:var(--app-border);color:var(--app-text);background:var(--app-surface)}
@@ -1057,7 +1057,7 @@
 :root[data-theme='dark'] .dashboard-goal-progress{background:var(--app-border)}
 :root[data-theme='dark'] .dashboard-goal-progress span{background:var(--brand-primary)}
 :root[data-theme='dark'] .topbar .brand-mark{border-color:var(--app-border);color:var(--brand-text);background:var(--app-soft)}
-:root[data-theme='dark'] .product-select-control option:checked{color:var(--brand-on-primary);background:var(--app-soft)}
+:root[data-theme='dark'] .sale-select-control option:checked{color:var(--brand-on-primary);background:var(--app-soft)}
 :root[data-theme='dark'] .loading-skeleton{--skeleton-base:var(--app-surface);--skeleton-highlight:var(--app-surface-raised);background:var(--app-background)}
 :root[data-theme='dark'] .skeleton-card,:root[data-theme='dark'] .skeleton-panel,
 :root[data-theme='dark'] .skeleton-metrics>.skeleton-block{border-color:var(--app-border);background:var(--app-surface)}
@@ -1097,7 +1097,7 @@
 :root[data-theme='dark'] .dashboard-company-options button:hover,:root[data-theme='dark'] .dashboard-company-options button.is-current,
 :root[data-theme='dark'] .dashboard-account-action:hover,:root[data-theme='dark'] .app-navigation-links a:hover,
 :root[data-theme='dark'] .app-navigation-links a.is-current{background:var(--app-hover);color:var(--brand-text)}
-:root[data-theme='dark'] .product-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
+:root[data-theme='dark'] .sale-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
 .sale-create-card .input-wrap>svg,.sale-edit-modal .input-wrap>svg{color:var(--brand-text)}
 .sale-create-card .input-wrap input::placeholder,.sale-edit-modal .input-wrap input::placeholder,
 .sale-create-card .notes-field textarea::placeholder,.sale-edit-modal .field-label textarea::placeholder{color:var(--brand-text)}
@@ -1108,7 +1108,7 @@
 :root[data-theme='dark'] .sale-edit-modal .input-wrap input::placeholder,
 :root[data-theme='dark'] .sale-create-card .notes-field textarea::placeholder,
 :root[data-theme='dark'] .sale-edit-modal .field-label textarea::placeholder{color:var(--brand-text)}
-:root[data-theme='dark'] .product-select-control select{background:transparent;color:var(--app-text)}
+:root[data-theme='dark'] .sale-select-control select{background:transparent;color:var(--app-text)}
 :root[data-theme='dark'] .dashboard-account-identity,:root[data-theme='dark'] .app-navigation-links{border-color:var(--app-border)}
 :root[data-theme='dark'] .company-preview-card{border-color:var(--app-border);color:var(--app-text);background:var(--app-surface)}
 .company-preview-theme.is-light{border-color:var(--app-border);color:var(--app-text);background:var(--app-surface)}
@@ -1136,19 +1136,19 @@
 :root[data-theme='dark'] .company-empty-icon,:root[data-theme='dark'] .create-icon,:root[data-theme='dark'] .sale-card-icon,
 :root[data-theme='dark'] .dashboard-period-icon,:root[data-theme='dark'] .dashboard-metric-icon,
 :root[data-theme='dark'] .sales-empty-icon,:root[data-theme='dark'] .sales-empty-history>span,
-:root[data-theme='dark'] .goals-empty>span,:root[data-theme='dark'] .goal-icon,:root[data-theme='dark'] .product-add-button{background:var(--app-soft);color:var(--brand-text)}
+:root[data-theme='dark'] .goals-empty>span,:root[data-theme='dark'] .goal-icon,:root[data-theme='dark'] .sale-select-add-button{background:var(--app-soft);color:var(--brand-text)}
 :root[data-theme='dark'] .input-wrap input,:root[data-theme='dark'] .notes-field textarea,
 :root[data-theme='dark'] .sales-filters input,:root[data-theme='dark'] .dashboard-custom-date-fields input,
 :root[data-theme='dark'] .goal-modal .field-label input,:root[data-theme='dark'] .goal-modal textarea,
 :root[data-theme='dark'] .sale-edit-modal .field-label input,:root[data-theme='dark'] .sale-edit-modal .field-label textarea,
-:root[data-theme='dark'] .product-select-control,:root[data-theme='dark'] .product-create-modal .field-label input,
+:root[data-theme='dark'] .sale-select-control,:root[data-theme='dark'] .product-create-modal .field-label input,
 :root[data-theme='dark'] .company-goal-reminder-message textarea,:root[data-theme='dark'] .phone-input-control{border-color:var(--app-border);background:var(--app-control)}
 :root[data-theme='dark'] .company-card.is-active{border-color:var(--brand-primary);background:var(--app-soft)}
 :root[data-theme='dark'] .company-active-button,:root[data-theme='dark'] .dashboard-period-summary-values .is-primary,
 :root[data-theme='dark'] .dashboard-goal-metrics>div.is-highlight{border-color:var(--brand-border);background:var(--app-soft)}
 :root[data-theme='dark'] .dashboard-period-segments button:hover,:root[data-theme='dark'] .goal-card-heading .company-actions-popover button:hover,
 :root[data-theme='dark'] .sale-actions-popover button:hover,:root[data-theme='dark'] .company-actions-popover button:hover,
-:root[data-theme='dark'] .product-add-button:hover{background:var(--app-hover)}
+:root[data-theme='dark'] .sale-select-add-button:hover{background:var(--app-hover)}
 :root[data-theme='dark'] .dashboard-rate-card-heading strong,:root[data-theme='dark'] .dashboard-rate-values .is-commission strong,
 :root[data-theme='dark'] .dashboard-rate-commission-row strong,:root[data-theme='dark'] .dashboard-rate-commission-row span,
 :root[data-theme='dark'] .dashboard-product-row>strong,:root[data-theme='dark'] .dashboard-product-row.is-commission>strong,
@@ -1174,12 +1174,12 @@
 .sales-table td,.dashboard-recent-table td{color:var(--app-text)}
 .sales-table td span,.dashboard-recent-table td span{color:var(--app-muted-text)}
 .recent-date-icon,.recent-rate-pill,.sales-history-mobile-card,.sale-actions-menu>summary,
-.company-actions-menu summary,.product-add-button,.product-select-control{border-color:var(--app-border)}
-.product-add-button{background:var(--app-soft);color:var(--brand-text)}
-.product-add-button:hover{border-color:var(--brand-primary);background:var(--app-hover);color:var(--brand-text)}
-.product-select-control{background:var(--app-control)}
-.product-select-control select{accent-color:var(--brand-primary);color-scheme:light dark}
-.product-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
+.company-actions-menu summary,.sale-select-add-button,.sale-select-control{border-color:var(--app-border)}
+.sale-select-add-button{background:var(--app-soft);color:var(--brand-text)}
+.sale-select-add-button:hover{border-color:var(--brand-primary);background:var(--app-hover);color:var(--brand-text)}
+.sale-select-control{background:var(--app-control)}
+.sale-select-control select{accent-color:var(--brand-primary);color-scheme:light dark}
+.sale-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
 .sales-back-link{color:var(--brand-text)}
 .dashboard-account-identity,.app-navigation-links{border-color:var(--app-border)}
 :root[data-theme='dark'] .topbar{border-bottom-color:var(--app-border)}
@@ -1193,14 +1193,14 @@
 :root[data-theme='dark'] .sales-table td span,:root[data-theme='dark'] .dashboard-recent-table td span{color:var(--app-muted-text)}
 :root[data-theme='dark'] .recent-date-icon,:root[data-theme='dark'] .recent-rate-pill,
 :root[data-theme='dark'] .sales-history-mobile-card,:root[data-theme='dark'] .sale-actions-menu>summary,
-:root[data-theme='dark'] .company-actions-menu summary,:root[data-theme='dark'] .product-add-button,
-:root[data-theme='dark'] .product-select-control{border-color:var(--app-border)}
-:root[data-theme='dark'] .product-add-button{background:var(--app-soft);color:var(--brand-text)}
-:root[data-theme='dark'] .product-add-button:hover{border-color:var(--brand-primary);background:var(--app-hover);color:var(--brand-text)}
-:root[data-theme='dark'] .product-select-control{background:var(--app-control)}
-:root[data-theme='dark'] .product-select-control select{accent-color:var(--brand-primary);color-scheme:dark}
-:root[data-theme='dark'] .product-select-control option{background-color:var(--app-control);color:var(--app-text)}
-:root[data-theme='dark'] .product-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
+:root[data-theme='dark'] .company-actions-menu summary,:root[data-theme='dark'] .sale-select-add-button,
+:root[data-theme='dark'] .sale-select-control{border-color:var(--app-border)}
+:root[data-theme='dark'] .sale-select-add-button{background:var(--app-soft);color:var(--brand-text)}
+:root[data-theme='dark'] .sale-select-add-button:hover{border-color:var(--brand-primary);background:var(--app-hover);color:var(--brand-text)}
+:root[data-theme='dark'] .sale-select-control{background:var(--app-control)}
+:root[data-theme='dark'] .sale-select-control select{accent-color:var(--brand-primary);color-scheme:dark}
+:root[data-theme='dark'] .sale-select-control option{background-color:var(--app-control);color:var(--app-text)}
+:root[data-theme='dark'] .sale-select-control option:checked{background:var(--app-soft);color:var(--brand-text)}
 :root[data-theme='dark'] .sales-back-link{color:var(--brand-text)}
 
 .company-identity-column{display:grid;grid-column:2;gap:16px;min-width:0}
@@ -1216,7 +1216,7 @@
 .company-palette-color{grid-row:span 2;width:22px;height:22px;border:1px solid var(--app-border);border-radius:6px}
 .company-palette-label{overflow:hidden;color:var(--app-text);font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 .company-palette-swatch code{color:var(--app-muted-text);font-size:9px}
-.product-select-icon{color:var(--brand-text)}
+.sale-select-icon{color:var(--brand-text)}
 .commission-rate-picker-heading span+span{color:var(--brand-text)}
 @media(max-width:760px){.company-identity-column{grid-column:1;order:-1}.company-palette-card{padding:15px}.company-color-setting-row{grid-template-columns:minmax(0,1fr) auto}}
 
@@ -1349,11 +1349,6 @@
 .sale-items-heading p{margin:5px 0 0;color:var(--app-muted-text);font-size:11px;line-height:1.5}
 .sale-items-heading>.quiet-button{flex:none;min-height:36px;padding-inline:10px;font-size:11px}
 .sale-status-select-wrap{display:grid;gap:7px}
-.sale-status-select-control{display:flex;align-items:center;gap:9px;min-height:42px;padding:0 10px;border:1px solid var(--app-border);border-radius:10px;color:var(--app-muted-text);background:var(--app-surface)}
-.sale-status-select-control:focus-within{border-color:var(--brand-primary);box-shadow:0 0 0 3px var(--brand-shadow)}
-.sale-status-select-control select{min-width:0;flex:1;min-height:40px;border:0;outline:0;color:var(--app-text);background:transparent;font:inherit;font-size:13px}
-.sale-status-select-control option{color:var(--brand-text);background:var(--app-surface)}
-.sale-status-select-control button{display:grid;width:30px;height:30px;flex:none;place-items:center;border:0;border-radius:8px;color:var(--brand-text);background:var(--brand-soft);cursor:pointer}
 .sale-items-editor{display:grid;gap:13px;min-width:0}
 .sale-saved-items{display:grid;gap:9px;min-width:0}
 .sale-items-empty{margin:0;padding:12px;border:1px dashed var(--app-border);border-radius:10px;color:var(--app-muted-text);font-size:11px;line-height:1.5}
@@ -1410,5 +1405,5 @@
 .sale-delete-actions .primary-button,.sale-delete-actions .quiet-button{min-height:38px;padding-inline:13px}
 .sale-order-edit-modal{max-height:min(90vh,860px);overflow-y:auto}
 @media(max-width:720px){.sales-order-header{flex-wrap:wrap;gap:9px}.sales-order-title{flex-basis:calc(100% - 42px)}.sales-order-header>.sale-actions-menu{order:1}.sales-order-status{order:2;margin-left:0}.sales-order-totals{order:3;flex:1;grid-template-columns:1fr 1fr;gap:10px;min-width:0}.sales-order-item{grid-template-columns:minmax(0,1fr) 78px 106px;gap:8px}}
-@media(max-width:460px){.sale-items-heading{align-items:flex-start;flex-direction:column}.sales-order-item{grid-template-columns:minmax(0,1fr) minmax(66px,.65fr) minmax(92px,.9fr);gap:7px}.sales-order-item>div:not(:first-child)>strong{font-size:10px}.sale-item-quantity-rate{grid-template-columns:1fr}.sale-status-select-control{gap:6px;padding-inline:8px}.sale-saved-item-values{grid-template-columns:repeat(2,minmax(0,1fr))}.commission-rate-presets{grid-template-columns:repeat(4,minmax(0,1fr))}.commission-rate-presets button{min-width:0;padding-inline:2px}}
-:root[data-theme='dark'] .sale-status-select-control,:root[data-theme='dark'] .sale-order-item{background:var(--app-background)}
+@media(max-width:460px){.sale-items-heading{align-items:flex-start;flex-direction:column}.sales-order-item{grid-template-columns:minmax(0,1fr) minmax(66px,.65fr) minmax(92px,.9fr);gap:7px}.sales-order-item>div:not(:first-child)>strong{font-size:10px}.sale-item-quantity-rate{grid-template-columns:1fr}.sale-saved-item-values{grid-template-columns:repeat(2,minmax(0,1fr))}.commission-rate-presets{grid-template-columns:repeat(4,minmax(0,1fr))}.commission-rate-presets button{min-width:0;padding-inline:2px}}
+:root[data-theme='dark'] .sale-order-item{background:var(--app-background)}
