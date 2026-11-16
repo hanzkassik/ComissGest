@@ -130,6 +130,69 @@ export async function createSale(companyId: string, userId: string, values: Sale
   })
 }
 
+export async function moveSaleToStatus(companyId: string, saleId: string, userId: string, nextStatusId: string): Promise<void> {
+  const saleRef = doc(firestore, 'companies', companyId, 'sales', saleId)
+  const nextStatusRef = doc(firestore, 'companies', companyId, 'saleStatuses', nextStatusId)
+
+  await runTransaction(firestore, async (transaction) => {
+    const saleSnapshot = await transaction.get(saleRef)
+    if (!saleSnapshot.exists() || saleSnapshot.data().userId !== userId) throw new Error('SALE_NOT_FOUND')
+
+    const oldData = saleSnapshot.data()
+    const oldStatusId = typeof oldData.statusId === 'string' ? oldData.statusId : undefined
+    const oldStatusRef = oldStatusId && oldStatusId !== nextStatusId
+      ? doc(firestore, 'companies', companyId, 'saleStatuses', oldStatusId)
+      : null
+    const [nextStatusSnapshot, oldStatusSnapshot] = await Promise.all([
+      transaction.get(nextStatusRef),
+      oldStatusRef ? transaction.get(oldStatusRef) : Promise.resolve(null),
+    ])
+
+    if (!nextStatusSnapshot.exists() || nextStatusSnapshot.data().active !== true) throw new Error('SALE_STATUS_UNAVAILABLE')
+    if (oldStatusRef && (!oldStatusSnapshot?.exists() || Number(oldStatusSnapshot.data().usageCount) < 1)) {
+      throw new Error('SALE_STATUS_COUNT_INVALID')
+    }
+
+    if (oldStatusId === nextStatusId && Array.isArray(oldData.items)) return
+
+    if (Array.isArray(oldData.items)) {
+      transaction.update(saleRef, { statusId: nextStatusId })
+    } else {
+      if (!(oldData.soldAt instanceof Timestamp) || !(oldData.createdAt instanceof Timestamp)) {
+        throw new Error('SALE_DATA_INVALID')
+      }
+      const item = mapItem({
+        amountCents: oldData.amountCents,
+        commissionRateBps: oldData.commissionRateBps,
+        commissionCents: oldData.commissionCents,
+        quantity: 1,
+        ...(typeof oldData.productId === 'string' ? { productId: oldData.productId } : {}),
+        ...(typeof oldData.notes === 'string' ? { notes: oldData.notes } : {}),
+      }, `${saleId}-legacy-item`)
+      transaction.set(saleRef, {
+        userId: oldData.userId,
+        soldAt: oldData.soldAt,
+        createdAt: oldData.createdAt,
+        statusId: nextStatusId,
+        items: [item],
+      })
+    }
+
+    if (oldStatusRef && oldStatusSnapshot?.exists()) {
+      transaction.update(oldStatusRef, {
+        usageCount: Number(oldStatusSnapshot.data().usageCount) - 1,
+        lastUsageChangeSaleId: saleId,
+        updatedAt: serverTimestamp(),
+      })
+    }
+    transaction.update(nextStatusRef, {
+      usageCount: Number(nextStatusSnapshot.data().usageCount) + 1,
+      lastUsageChangeSaleId: saleId,
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
 export async function updateSale(companyId: string, saleId: string, userId: string, values: SaleFormValues): Promise<void> {
   const saleRef = doc(firestore, 'companies', companyId, 'sales', saleId)
   const data = saleData(userId, values)

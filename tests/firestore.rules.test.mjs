@@ -322,6 +322,103 @@ test('permite registrar uma venda própria com itens embutidos e atualizar a con
   await assertSucceeds(batch.commit())
 })
 
+test('permite mover uma venda entre status ativos com contadores atômicos e nega status inativo como destino', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  const db = testEnvironment.authenticatedContext('alice').firestore()
+  const saleId = 'sale-1'
+  const saleRef = doc(db, 'companies', companyId, 'sales', saleId)
+  const createdStatusRef = doc(db, 'companies', companyId, 'saleStatuses', 'created')
+  const fabricationStatusRef = doc(db, 'companies', companyId, 'saleStatuses', 'in-fabrication')
+  const inactiveStatusRef = doc(db, 'companies', companyId, 'saleStatuses', 'awaiting-delivery')
+  const createBatch = writeBatch(db)
+  createBatch.set(saleRef, transactionSaleData('alice', serverTimestamp(), 'created'))
+  createBatch.update(createdStatusRef, {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(createBatch.commit())
+
+  const moveBatch = writeBatch(db)
+  moveBatch.update(saleRef, { statusId: 'in-fabrication' })
+  moveBatch.update(createdStatusRef, {
+    usageCount: 0, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  moveBatch.update(fabricationStatusRef, {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(moveBatch.commit())
+
+  await assertSucceeds(updateDoc(inactiveStatusRef, {
+    active: false, updatedAt: serverTimestamp(), updatedBy: 'alice',
+  }))
+  const inactiveMoveBatch = writeBatch(db)
+  inactiveMoveBatch.update(saleRef, { statusId: 'awaiting-delivery' })
+  inactiveMoveBatch.update(fabricationStatusRef, {
+    usageCount: 0, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  inactiveMoveBatch.update(inactiveStatusRef, {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertFails(inactiveMoveBatch.commit())
+})
+
+test('permite converter uma venda legada ao mover e preserva seus valores e observação', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  const saleId = 'legacy-sale'
+  const soldAt = Timestamp.fromDate(new Date('2025-05-20T15:00:00Z'))
+  const createdAt = Timestamp.fromDate(new Date('2025-05-20T15:01:00Z'))
+  const legacyNotes = 'Observação antiga'
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'companies', companyId, 'sales', saleId), {
+      userId: 'alice',
+      amountCents: 10000,
+      commissionRateBps: 1000,
+      commissionCents: 1000,
+      soldAt,
+      createdAt,
+      notes: legacyNotes,
+    })
+  })
+
+  const db = testEnvironment.authenticatedContext('alice').firestore()
+  const saleRef = doc(db, 'companies', companyId, 'sales', saleId)
+  const statusRef = doc(db, 'companies', companyId, 'saleStatuses', 'in-fabrication')
+  const conversionBatch = writeBatch(db)
+  conversionBatch.set(saleRef, {
+    userId: 'alice',
+    soldAt,
+    createdAt,
+    statusId: 'in-fabrication',
+    items: [{
+      itemId: `${saleId}-legacy-item`,
+      amountCents: 10000,
+      commissionRateBps: 1000,
+      commissionCents: 1000,
+      quantity: 1,
+      notes: legacyNotes,
+    }],
+  })
+  conversionBatch.update(statusRef, {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(conversionBatch.commit())
+
+  const convertedSale = (await getDoc(saleRef)).data()
+  assert.equal(convertedSale.statusId, 'in-fabrication')
+  assert.equal(convertedSale.soldAt.toMillis(), soldAt.toMillis())
+  assert.equal(convertedSale.createdAt.toMillis(), createdAt.toMillis())
+  assert.deepEqual(convertedSale.items[0], {
+    itemId: `${saleId}-legacy-item`,
+    amountCents: 10000,
+    commissionRateBps: 1000,
+    commissionCents: 1000,
+    quantity: 1,
+    notes: legacyNotes,
+  })
+  assert.equal(convertedSale.amountCents, undefined)
+})
+
 test('status de venda é legível e administrável por qualquer membro da empresa', async () => {
   const companyId = 'company-alice'
   await seedCompany('alice', companyId)
