@@ -17,7 +17,7 @@ dist-ssr
 service-account*.json
 *-firebase-adminsdk-*.json
 .runtimeconfig.json
-
+scripts
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
