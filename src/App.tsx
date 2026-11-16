@@ -15,6 +15,7 @@ const ProfilePage = lazy(() => import('./pages/profile/ProfilePage').then((modul
 const CompaniesPage = lazy(() => import('./pages/companies/CompaniesPage').then((module) => ({ default: module.CompaniesPage })))
 const CompanySettingsPage = lazy(() => import('./pages/companies/CompanySettingsPage').then((module) => ({ default: module.CompanySettingsPage })))
 const SalesPage = lazy(() => import('./pages/sales/SalesPage').then((module) => ({ default: module.SalesPage })))
+const OrderTrackingPage = lazy(() => import('./pages/sales/OrderTrackingPage').then((module) => ({ default: module.OrderTrackingPage })))
 const ProductsPage = lazy(() => import('./pages/products/ProductsPage').then((module) => ({ default: module.ProductsPage })))
 const SaleStatusesPage = lazy(() => import('./pages/sales/SaleStatusesPage').then((module) => ({ default: module.SaleStatusesPage })))
 const GoalsPage = lazy(() => import('./pages/goals/GoalsPage').then((module) => ({ default: module.GoalsPage })))
@@ -51,6 +52,7 @@ function App() {
                 <Route path="/empresas/:companyId/configuracoes" element={<ProtectedRoute><CompanySettingsPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/metas" element={<ProtectedRoute><GoalsPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/vendas" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
+                <Route path="/empresas/:companyId/acompanhamento-pedidos" element={<ProtectedRoute><OrderTrackingPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/status-vendas" element={<ProtectedRoute><SaleStatusesPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/produtos" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
                 <Route path="/vendas" element={<ProtectedRoute><LegacySalesRedirect /></ProtectedRoute>} />
