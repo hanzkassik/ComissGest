@@ -125,7 +125,7 @@ export function SalesPage() {
         <div className="sales-heading"><div><Link className="sales-back-link" to={`/empresas/${company.companyId}`}><ArrowLeft size={14} /> Dashboard</Link><span className="eyebrow"><Receipt size={15} /> {company.companyName}</span><h1>Vendas e comissões</h1><p>Registre pedidos e acompanhe sua evolução.</p></div><div className="sales-owner-pill"><UserRound size={15} /> Histórico individual</div></div>
         <div className="sales-layout">
           <section className="profile-card sale-create-card" aria-labelledby="sale-form-heading">
-            <div className="sale-card-title"><span className="sale-card-icon"><Plus size={18} /></span><div><h2 id="sale-form-heading">Registrar venda</h2><p>A comissão é calculada pelo valor total de cada item.</p></div></div>
+            <div className="sale-card-title"><span className="sale-card-icon"><Plus size={18} /></span><div><h2 id="sale-form-heading">Registrar venda</h2><p>O total é calculado pelo valor unitário de cada item e sua quantidade.</p></div></div>
             <form className="form-stack sale-order-form" onSubmit={handleSubmit(onCreate)} noValidate>
               <div className="sale-form-section"><h3>Dados do pedido</h3>
                 <FormField id="sale-customer-name" label="Nome do cliente (opcional)" icon={UserRound} maxLength={160} placeholder="Nome do cliente" registration={register('customerName')} error={errors.customerName?.message} />
@@ -136,8 +136,8 @@ export function SalesPage() {
                 <div className="sale-status-select-wrap"><label className="field-label" htmlFor="sale-status">Status</label><div className="sale-select-control"><span className="sale-select-icon"><Tag size={16} /></span><select id="sale-status" disabled={loadingStatuses || statusesError !== '' || !statuses.some((status) => status.active)} {...register('statusId')}><option value="">{loadingStatuses ? 'Carregando status…' : statusesError || 'Selecione um status'}</option>{statuses.filter((status) => status.active).map((status) => <option key={status.statusId} value={status.statusId}>{status.name}</option>)}</select><button className="sale-select-add-button" type="button" aria-label="Adicionar status" title="Adicionar status" onClick={() => setQuickStatusOpen(true)}><Plus size={17} /></button></div>{errors.statusId?.message && <span className="field-error">{errors.statusId.message}</span>}{!loadingStatuses && statuses.length === 0 && !statusesError && <span className="field-hint">Os status ainda estão sendo inicializados. Tente novamente em instantes.</span>}</div>
                 {statusesError && <p className="field-error" role="alert"><CircleAlert size={14} />{statusesError}<button className="text-link" type="button" onClick={() => void loadStatuses()}>Tentar novamente</button></p>}
               </div>
-              <div className="sale-form-section"><div className="sale-items-heading"><div><h3>Itens da venda</h3><p>O valor informado já representa o total do item. A quantidade não altera os cálculos.</p></div></div>
-                <SaleItemsEditor companyId={company.companyId} items={items} onItemsChange={(next) => replace(next)} />
+              <div className="sale-form-section"><div className="sale-items-heading"><div><h3>Itens da venda</h3><p>O total é calculado pelo valor unitário multiplicado pela quantidade.</p></div></div>
+                <SaleItemsEditor companyId={company.companyId} statuses={statuses} items={items} onItemsChange={(next) => replace(next)} />
                 {errors.items?.message && <span className="field-error" role="alert">{errors.items.message}</span>}
               </div>
               <label className="notes-field">Observação do pedido <span>(opcional)</span><textarea rows={3} maxLength={500} placeholder="Detalhes sobre esta venda" {...register('notes')} />{errors.notes?.message && <span className="field-error">{errors.notes.message}</span>}</label>

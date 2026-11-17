@@ -11,6 +11,10 @@ import type { Sale } from '../types/sale'
 import type { SaleStatus } from '../types/saleStatus'
 import { toLocalDateInputValue } from '../utils/currency'
 
+function formatCentsInput(cents: number) {
+  return `${Math.floor(cents / 100)},${String(cents % 100).padStart(2, '0')}`
+}
+
 function saleFormValues(sale: Sale): SaleFormValues {
   const soldAt = sale.soldAt.toDate()
   const delivery = sale.deliveryAt?.toDate()
@@ -26,9 +30,14 @@ function saleFormValues(sale: Sale): SaleFormValues {
     items: sale.items.map((item) => ({
       itemId: item.itemId,
       amount: `${Math.floor(item.amountCents / 100)},${String(item.amountCents % 100).padStart(2, '0')}`,
+      unitPrice: formatCentsInput(item.unitPriceCents ?? Math.round(item.amountCents / item.quantity)),
       commissionRate: `${Math.floor(item.commissionRateBps / 100)},${String(item.commissionRateBps % 100).padStart(2, '0')}`,
       quantity: String(item.quantity).replace('.', ','),
       productId: item.productId ?? '',
+      statusId: item.statusId ?? '',
+      deliveryOn: item.deliveryAt
+        ? `${item.deliveryAt.toDate().getFullYear()}-${String(item.deliveryAt.toDate().getMonth() + 1).padStart(2, '0')}-${String(item.deliveryAt.toDate().getDate()).padStart(2, '0')}`
+        : '',
       notes: item.notes ?? '',
     })),
   }
@@ -64,7 +73,7 @@ export function SaleEditModal({ sale, companyId, statuses, canManageStatuses, sa
       <div className="sale-datetime-fields"><FormField id={`edit-sale-date-${sale.saleId}`} label="Data da venda" icon={CalendarDays} type="date" max={toLocalDateInputValue()} registration={register('soldOn')} /><FormField id={`edit-sale-time-${sale.saleId}`} label="Hora da venda" icon={Clock3} type="time" registration={register('soldTime')} /></div>
       <FormField id={`edit-sale-delivery-${sale.saleId}`} label="Data prevista de entrega (opcional)" icon={CalendarDays} type="date" registration={register('deliveryOn')} />
       <div className="sale-status-select-wrap"><label className="field-label" htmlFor={`edit-sale-status-${sale.saleId}`}>Status</label><div className="sale-select-control"><span className="sale-select-icon"><Tag size={16} /></span><select id={`edit-sale-status-${sale.saleId}`} {...register('statusId')}><option value={sale.statusId ?? ''} disabled={currentStatus?.active === false}>{currentStatus?.name ?? (sale.statusId ? 'Status atual' : 'Sem status')}{currentStatus?.active === false ? ' (desativado)' : ''}</option>{activeStatuses.filter((status) => status.statusId !== sale.statusId).map((status) => <option key={status.statusId} value={status.statusId}>{status.name}</option>)}</select>{canManageStatuses && <button className="sale-select-add-button" type="button" aria-label="Adicionar status" title="Adicionar status" onClick={() => setQuickStatusOpen(true)}><Plus size={17} /></button>}</div></div>
-      <div className="sale-form-section"><div className="sale-items-heading"><div><h3>Itens da venda</h3><p>O valor informado já representa o total do item. A quantidade não altera os cálculos.</p></div></div><SaleItemsEditor companyId={companyId} items={items} collapsibleDraft onItemsChange={(next) => setValue('items', next, { shouldDirty: true, shouldValidate: true })} onProductCreated={onProductCreated} />{errors.items?.message && <span className="field-error" role="alert">{errors.items.message}</span>}</div>
+      <div className="sale-form-section"><div className="sale-items-heading"><div><h3>Itens da venda</h3><p>O total de cada item é calculado pelo valor unitário multiplicado pela quantidade.</p></div></div><SaleItemsEditor companyId={companyId} statuses={statuses} items={items} collapsibleDraft onItemsChange={(next) => setValue('items', next, { shouldDirty: true, shouldValidate: true })} onProductCreated={onProductCreated} />{errors.items?.message && <span className="field-error" role="alert">{errors.items.message}</span>}</div>
       <label className="notes-field">Observação do pedido <span>(opcional)</span><textarea rows={3} maxLength={500} {...register('notes')} /></label>
       {Object.keys(errors).length > 0 && <p className="field-error" role="alert">Confira os dados dos campos e tente novamente.</p>}
       {saveError && <p className="field-error" role="alert">{saveError}</p>}

@@ -118,6 +118,16 @@ service cloud.firestore {
     }
 
     match /companies/{companyId} {
+      function saleStatusUsageCount(data, statusId) {
+        let headerUsage = data.keys().hasAny(['statusId']) && data.statusId == statusId ? 1 : 0;
+        let itemUsage = data.keys().hasAny(['itemStatusUsage'])
+          && data.itemStatusUsage is map
+          && data.itemStatusUsage.keys().hasAny([statusId])
+          ? data.itemStatusUsage[statusId]
+          : 0;
+        return headerUsage + itemUsage;
+      }
+
       allow get: if isCompanyMember(companyId);
       allow list: if false;
       allow create: if request.resource.data.keys().hasAll([
@@ -337,13 +347,14 @@ service cloud.firestore {
           return data.keys().hasAll(['userId', 'soldAt', 'createdAt', 'items'])
             && data.keys().hasOnly([
               'userId', 'soldAt', 'createdAt', 'statusId', 'items', 'customerName', 'customerPhone',
-              'externalNumber', 'deliveryAt', 'notes'
+              'externalNumber', 'deliveryAt', 'notes', 'itemStatusUsage'
             ])
             && data.userId == request.auth.uid
             && data.soldAt is timestamp
             && data.createdAt is timestamp
             && data.items is list
             && data.items.size() >= 1
+            && (!data.keys().hasAny(['itemStatusUsage']) || data.itemStatusUsage is map)
             && (!data.keys().hasAny(['statusId'])
               || (data.statusId is string
                 && data.statusId.matches('^[A-Za-z0-9_-]{1,128}$')
@@ -370,7 +381,8 @@ service cloud.firestore {
         function statusCountersMatchCreate(data) {
           return !data.keys().hasAny(['statusId'])
             || (statusIsActive(data.statusId)
-              && statusCountUpdated(data.statusId, get(saleStatusPath(companyId, data.statusId)).data.usageCount + 1));
+              && statusCountUpdated(data.statusId, get(saleStatusPath(companyId, data.statusId)).data.usageCount
+                + saleStatusUsageCount(data, data.statusId)));
         }
 
         function statusCountersMatchUpdate(data) {
@@ -380,10 +392,14 @@ service cloud.firestore {
           let nextStatusId = hasStatus ? data.statusId : '';
           return oldStatusId == nextStatusId
             || ((!hadStatus || statusCountUpdated(oldStatusId,
-                get(saleStatusPath(companyId, oldStatusId)).data.usageCount - 1))
+                get(saleStatusPath(companyId, oldStatusId)).data.usageCount
+                  + saleStatusUsageCount(data, oldStatusId)
+                  - saleStatusUsageCount(resource.data, oldStatusId)))
               && (!hasStatus || (statusIsActive(nextStatusId)
                 && statusCountUpdated(nextStatusId,
-                  get(saleStatusPath(companyId, nextStatusId)).data.usageCount + 1))));
+                  get(saleStatusPath(companyId, nextStatusId)).data.usageCount
+                    + saleStatusUsageCount(data, nextStatusId)
+                    - saleStatusUsageCount(resource.data, nextStatusId)))));
         }
 
         function hasValidNewSale(data, isCreate) {
@@ -394,11 +410,12 @@ service cloud.firestore {
         function validSaleUpdateShape() {
           let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
           let currentSaleKeys = [
-            'soldAt', 'statusId', 'items', 'customerName', 'customerPhone', 'externalNumber', 'deliveryAt', 'notes'
+            'soldAt', 'statusId', 'items', 'customerName', 'customerPhone', 'externalNumber', 'deliveryAt', 'notes',
+            'itemStatusUsage'
           ];
           let legacyConversionKeys = [
             'soldAt', 'statusId', 'items', 'customerName', 'customerPhone', 'externalNumber', 'deliveryAt', 'notes',
-            'amountCents', 'commissionRateBps', 'commissionCents', 'productId'
+            'amountCents', 'commissionRateBps', 'commissionCents', 'productId', 'itemStatusUsage'
           ];
           return (resource.data.keys().hasAny(['items']) && changedKeys.hasOnly(currentSaleKeys))
             || (isValidLegacySale(resource.data) && changedKeys.hasOnly(legacyConversionKeys));
@@ -429,7 +446,8 @@ service cloud.firestore {
             || (resource.data.items is list
               && (!resource.data.keys().hasAny(['statusId'])
                 || statusCountUpdated(resource.data.statusId,
-                  get(saleStatusPath(companyId, resource.data.statusId)).data.usageCount - 1))));
+                  get(saleStatusPath(companyId, resource.data.statusId)).data.usageCount
+                    - saleStatusUsageCount(resource.data, resource.data.statusId)))));
       }
 
       match /saleStatuses/{statusId} {
@@ -440,13 +458,15 @@ service cloud.firestore {
             ])
             && data.keys().hasOnly([
               'name', 'sortOrder', 'active', 'isFinalizedIndicator', 'usageCount', 'lastUsageChangeSaleId',
-              'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+                'color', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
             ])
             && data.name is string && data.name.size() >= 2 && data.name.size() <= 60
             && data.sortOrder is int && data.sortOrder >= 0
             && data.active is bool
             && data.isFinalizedIndicator is bool
             && data.usageCount is int && data.usageCount >= 0
+            && (!data.keys().hasAny(['color'])
+              || (data.color is string && data.color.matches('^#[0-9a-fA-F]{6}$')))
             && (data.lastUsageChangeSaleId == null || (data.lastUsageChangeSaleId is string && data.lastUsageChangeSaleId.size() <= 128))
             && data.createdAt is timestamp && data.updatedAt is timestamp
             && data.createdBy is string && data.updatedBy is string;
@@ -457,33 +477,21 @@ service cloud.firestore {
           let saleRef = salePath(companyId, request.resource.data.lastUsageChangeSaleId);
           let hasBefore = exists(saleRef);
           let hasAfter = existsAfter(saleRef);
+          let beforeCount = hasBefore ? saleStatusUsageCount(get(saleRef).data, statusId) : 0;
+          let afterCount = hasAfter ? saleStatusUsageCount(getAfter(saleRef).data, statusId) : 0;
           return affected.hasOnly(['usageCount', 'lastUsageChangeSaleId', 'updatedAt'])
             && request.resource.data.updatedAt == request.time
             && request.resource.data.lastUsageChangeSaleId is string
-            && (( !hasBefore && hasAfter
-                  && getAfter(saleRef).data.keys().hasAny(['statusId'])
-                  && getAfter(saleRef).data.statusId == statusId
-                  && request.resource.data.usageCount == resource.data.usageCount + 1)
-              || (hasBefore && !hasAfter
-                  && get(saleRef).data.keys().hasAny(['statusId'])
-                  && get(saleRef).data.statusId == statusId
-                  && request.resource.data.usageCount == resource.data.usageCount - 1)
-              || (hasBefore && hasAfter
-                  && ((get(saleRef).data.keys().hasAny(['statusId'])
-                      && get(saleRef).data.statusId == statusId
-                      && (!getAfter(saleRef).data.keys().hasAny(['statusId'])
-                        || getAfter(saleRef).data.statusId != statusId)
-                      && request.resource.data.usageCount == resource.data.usageCount - 1)
-                    || ((!get(saleRef).data.keys().hasAny(['statusId'])
-                        || get(saleRef).data.statusId != statusId)
-                      && getAfter(saleRef).data.keys().hasAny(['statusId'])
-                      && getAfter(saleRef).data.statusId == statusId
-                      && request.resource.data.usageCount == resource.data.usageCount + 1))));
+            && (hasBefore || hasAfter)
+            && (!hasBefore || get(saleRef).data.userId == request.auth.uid)
+            && (!hasAfter || getAfter(saleRef).data.userId == request.auth.uid)
+            && request.resource.data.usageCount == resource.data.usageCount + afterCount - beforeCount;
         }
 
         allow get, list: if isCompanyMember(companyId);
         allow create: if isCompanyMember(companyId)
           && validStatus(request.resource.data)
+          && request.resource.data.keys().hasAny(['color'])
           && request.resource.data.usageCount == 0
           && request.resource.data.lastUsageChangeSaleId == null
           && request.resource.data.createdAt == request.time
@@ -497,7 +505,7 @@ service cloud.firestore {
             && request.resource.data.updatedAt == request.time
             && request.resource.data.updatedBy == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'name', 'sortOrder', 'active', 'isFinalizedIndicator', 'updatedAt', 'updatedBy'
+              'name', 'color', 'sortOrder', 'active', 'isFinalizedIndicator', 'updatedAt', 'updatedBy'
             ]))
           || (isCompanyMember(companyId)
             && validStatus(request.resource.data)

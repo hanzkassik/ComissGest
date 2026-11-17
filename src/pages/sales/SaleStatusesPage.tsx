@@ -1,16 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { ArrowDown, ArrowLeft, ArrowUp, CircleAlert, Pencil, Plus, Tag, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, CircleAlert, Palette, Pencil, Plus, Tag, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { AccountMenu } from '../../components/AccountMenu'
 import { BrandMark } from '../../components/BrandMark'
 import { LoadingSkeleton } from '../../components/LoadingSkeleton'
+import { FormField } from '../../components/FormField'
 import { useAuth } from '../../hooks/useAuth'
 import { useCompany } from '../../hooks/useCompany'
 import { saleStatusSchema, type SaleStatusFormValues } from '../../schemas/saleStatusSchemas'
 import { createSaleStatus, deleteSaleStatus, ensureDefaultSaleStatuses, getCompanySaleStatuses, reorderSaleStatuses, resolveFinalizedSaleStatus, updateSaleStatus } from '../../services/saleStatusService'
-import type { SaleStatus } from '../../types/saleStatus'
+import { DEFAULT_SALE_STATUS_COLOR, type SaleStatus } from '../../types/saleStatus'
 
 export function SaleStatusesPage() {
   const { companyId = '' } = useParams()
@@ -51,9 +52,9 @@ export function SaleStatusesPage() {
     setError('')
     try {
       if (modalStatus) {
-        await updateSaleStatus(company.companyId, currentUser.uid, modalStatus.statusId, { name: values.name, isFinalizedIndicator })
+        await updateSaleStatus(company.companyId, currentUser.uid, modalStatus.statusId, { name: values.name, color: values.color, isFinalizedIndicator })
       } else {
-        await createSaleStatus(company.companyId, currentUser.uid, values.name, isFinalizedIndicator)
+        await createSaleStatus(company.companyId, currentUser.uid, values.name, values.color, isFinalizedIndicator)
       }
       setModalStatus(undefined)
       await load()
@@ -129,14 +130,14 @@ export function SaleStatusesPage() {
         {loading ? <LoadingSkeleton variant="product-list" page={false} rows={4} /> : statuses.length === 0 ? <div className="products-empty"><span className="company-card-icon"><Tag size={20} /></span><h2>Nenhum status cadastrado</h2><p>Adicione status para acompanhar a evolução de seus pedidos.</p><button className="primary-button" type="button" onClick={() => setModalStatus(null)}><Plus size={16} /> Adicionar status</button></div> : <ol className="sale-status-list">
           {statuses.map((status, index) => <li className="sale-status-card" key={status.statusId}>
             <div className="sale-status-order"><button type="button" aria-label={`Mover ${status.name} para cima`} disabled={index === 0} onClick={() => void moveStatus(index, -1)}><ArrowUp size={15} /></button><span>{index + 1}</span><button type="button" aria-label={`Mover ${status.name} para baixo`} disabled={index === statuses.length - 1} onClick={() => void moveStatus(index, 1)}><ArrowDown size={15} /></button></div>
-            <div className="sale-status-main"><strong>{status.name}</strong><div className="sale-status-tags">{!status.active && <span className="sale-status-tag is-inactive">Desativado</span>}{status.isFinalizedIndicator && finalizedStatus?.statusId === status.statusId && <span className="sale-status-tag">Indicador de finalizado</span>}{status.isFinalizedIndicator && finalizedStatus?.statusId !== status.statusId && <span className="sale-status-tag">Indicador marcado · prioridade menor</span>}{finalizedStatus?.statusId === status.statusId && !status.isFinalizedIndicator && <span className="sale-status-tag">Finalizado por ordem</span>}{status.usageCount > 0 && <span className="sale-status-usage">{status.usageCount} {status.usageCount === 1 ? 'venda' : 'vendas'}</span>}</div></div>
+            <div className="sale-status-main"><strong>{status.name}</strong><div className="sale-status-tags"><span className="sale-status-color-dot" style={{ backgroundColor: status.color }} aria-hidden="true" />{!status.active && <span className="sale-status-tag is-inactive">Desativado</span>}{status.isFinalizedIndicator && finalizedStatus?.statusId === status.statusId && <span className="sale-status-tag">Indicador de finalizado</span>}{status.isFinalizedIndicator && finalizedStatus?.statusId !== status.statusId && <span className="sale-status-tag">Indicador marcado · prioridade menor</span>}{finalizedStatus?.statusId === status.statusId && !status.isFinalizedIndicator && <span className="sale-status-tag">Finalizado por ordem</span>}{status.usageCount > 0 && <span className="sale-status-usage">{status.usageCount} {status.usageCount === 1 ? 'uso' : 'usos'}</span>}</div></div>
             <div className="sale-status-actions"><button className="quiet-button" type="button" onClick={() => void toggleActive(status)}>{status.active ? 'Desativar' : 'Ativar'}</button><button className="quiet-button" type="button" onClick={() => setModalStatus(status)}><Pencil size={14} /> Editar</button><button className="quiet-button sale-status-delete" type="button" aria-label={`Excluir status ${status.name}`} onClick={() => void removeStatus(status)}><Trash2 size={14} /></button></div>
           </li>)}
         </ol>}
       </section>
     </div>
     {modalStatus !== undefined && <SaleStatusModal status={modalStatus} saving={saving} onClose={() => !saving && setModalStatus(undefined)} onSave={(values, indicator) => void saveStatus(values, indicator)} />}
-    {deleteWarning && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteWarning(null) }}><section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="sale-status-delete-title"><div className="company-modal-heading"><span className="create-icon"><CircleAlert size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={() => setDeleteWarning(null)}><X size={18} /></button></div><h2 id="sale-status-delete-title">Status em uso</h2><p>O status “{deleteWarning.name}” está associado a {deleteWarning.usageCount} venda(s) e não pode ser excluído. Você pode desativá-lo para impedir novas seleções.</p><button className="primary-button" type="button" onClick={() => setDeleteWarning(null)}>Entendi</button></section></div>}
+    {deleteWarning && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteWarning(null) }}><section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="sale-status-delete-title"><div className="company-modal-heading"><span className="create-icon"><CircleAlert size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={() => setDeleteWarning(null)}><X size={18} /></button></div><h2 id="sale-status-delete-title">Status em uso</h2><p>O status “{deleteWarning.name}” possui {deleteWarning.usageCount} referência(s) entre pedidos e itens e não pode ser excluído. Você pode desativá-lo para impedir novas seleções.</p><button className="primary-button" type="button" onClick={() => setDeleteWarning(null)}>Entendi</button></section></div>}
   </main>
 }
 
@@ -148,15 +149,16 @@ function SaleStatusModal({ status, saving, onClose, onSave }: {
 }) {
   const { register, handleSubmit, formState: { errors } } = useForm<SaleStatusFormValues>({
     resolver: zodResolver(saleStatusSchema),
-    defaultValues: { name: status?.name ?? '' },
+    defaultValues: { name: status?.name ?? '', color: status?.color ?? DEFAULT_SALE_STATUS_COLOR },
   })
   const [isFinalizedIndicator, setIsFinalizedIndicator] = useState(status?.isFinalizedIndicator ?? false)
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose() }}><section className="company-modal sale-status-modal" role="dialog" aria-modal="true" aria-labelledby="sale-status-modal-title">
     <div className="company-modal-heading"><span className="create-icon"><Tag size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={onClose} disabled={saving}><X size={18} /></button></div>
-    <h2 id="sale-status-modal-title">{status ? 'Editar status' : 'Adicionar status'}</h2><p>O nome atualizado será exibido também nas vendas que já usam este status.</p>
+    <h2 id="sale-status-modal-title">{status ? 'Editar status' : 'Adicionar status'}</h2><p>O nome e a cor atualizados serão exibidos nos pedidos e itens que usam este status.</p>
     <form className="form-stack" onSubmit={handleSubmit((values) => onSave(values, isFinalizedIndicator))} noValidate>
       <label className="field-label">Nome do status<input autoFocus maxLength={60} placeholder="Ex.: Separando pedido" {...register('name')} />{errors.name?.message && <span className="field-error">{errors.name.message}</span>}</label>
+      <FormField id={`sale-status-color-${status?.statusId ?? 'new'}`} label="Cor do status" icon={Palette} type="color" className="sale-status-color-input" registration={register('color')} error={errors.color?.message} />
       <label className="sale-status-indicator-field"><input type="checkbox" checked={isFinalizedIndicator} onChange={(event) => setIsFinalizedIndicator(event.target.checked)} /><span><strong>Indicador de finalizado</strong><small>Usado para identificar vendas concluídas. Se houver mais de um, vale o último na ordem.</small></span></label>
       <button className="primary-button" type="submit" disabled={saving}>{saving ? 'Salvando…' : 'Salvar status'}</button>
     </form>
