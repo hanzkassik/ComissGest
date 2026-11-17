@@ -3,10 +3,13 @@ import type { QueryDocumentSnapshot, Timestamp } from 'firebase/firestore'
 export interface SaleItem {
   itemId: string
   amountCents: number
+  unitPriceCents?: number
   commissionRateBps: number
   commissionCents: number
   quantity: number
   productId?: string
+  statusId?: string
+  deliveryAt?: Timestamp
   notes?: string
 }
 
@@ -29,6 +32,8 @@ export interface Sale {
 export interface SaleFilters {
   startDate?: string
   endDate?: string
+  orderStatusId?: string
+  itemStatusId?: string
 }
 
 export interface SalePage {

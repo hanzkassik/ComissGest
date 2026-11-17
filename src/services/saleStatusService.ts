@@ -15,8 +15,17 @@ import {
 import { firestore } from '../firebase/firestore'
 import { defaultSaleStatuses, type SaleStatus } from '../types/saleStatus'
 
+const fallbackStatusColors = ['#187f63', '#3877c8', '#b7791f', '#39834a'] as const
+
 function statusesCollection(companyId: string) {
   return collection(firestore, 'companies', companyId, 'saleStatuses')
+}
+
+function fallbackColor(statusId: string) {
+  const defaultColor = defaultSaleStatuses.find((status) => status.statusId === statusId)?.color
+  if (defaultColor) return defaultColor
+  const hash = [...statusId].reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
+  return fallbackStatusColors[hash % fallbackStatusColors.length]
 }
 
 function mapSaleStatus(snapshot: QueryDocumentSnapshot): SaleStatus {
@@ -35,6 +44,9 @@ function mapSaleStatus(snapshot: QueryDocumentSnapshot): SaleStatus {
   return {
     statusId: snapshot.id,
     name: data.name,
+    color: typeof data.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.color)
+      ? data.color
+      : fallbackColor(snapshot.id),
     sortOrder: data.sortOrder,
     active: data.active,
     isFinalizedIndicator: data.isFinalizedIndicator,
@@ -64,6 +76,7 @@ export async function ensureDefaultSaleStatuses(companyId: string, userId: strin
       const status = defaultSaleStatuses[index]
       transaction.set(refs[index], {
         name: status.name,
+        color: status.color,
         sortOrder: status.sortOrder,
         active: true,
         isFinalizedIndicator: status.isFinalizedIndicator,
@@ -79,7 +92,7 @@ export async function ensureDefaultSaleStatuses(companyId: string, userId: strin
   })
 }
 
-export async function createSaleStatus(companyId: string, userId: string, name: string, isFinalizedIndicator = false): Promise<SaleStatus> {
+export async function createSaleStatus(companyId: string, userId: string, name: string, color: string, isFinalizedIndicator = false): Promise<SaleStatus> {
   await ensureDefaultSaleStatuses(companyId, userId)
   const current = await getCompanySaleStatuses(companyId)
   const statusRef = doc(statusesCollection(companyId))
@@ -87,6 +100,7 @@ export async function createSaleStatus(companyId: string, userId: string, name: 
   const nextOrder = current.reduce((largest, status) => Math.max(largest, status.sortOrder), -1) + 1
   await setDoc(statusRef, {
     name: name.trim(),
+    color,
     sortOrder: nextOrder,
     active: true,
     isFinalizedIndicator,
@@ -100,6 +114,7 @@ export async function createSaleStatus(companyId: string, userId: string, name: 
   return {
     statusId: statusRef.id,
     name: name.trim(),
+    color,
     sortOrder: nextOrder,
     active: true,
     isFinalizedIndicator,
@@ -121,7 +136,7 @@ export async function updateSaleStatus(
   companyId: string,
   userId: string,
   statusId: string,
-  update: Partial<Pick<SaleStatus, 'name' | 'active' | 'isFinalizedIndicator'>>,
+  update: Partial<Pick<SaleStatus, 'name' | 'color' | 'active' | 'isFinalizedIndicator'>>,
 ): Promise<void> {
   await updateDoc(doc(firestore, 'companies', companyId, 'saleStatuses', statusId), {
     ...update,

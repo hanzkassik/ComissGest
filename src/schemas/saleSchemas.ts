@@ -17,9 +17,14 @@ const optionalDate = z.string().optional().or(z.literal(''))
 export const saleItemSchema = z.object({
   itemId: z.string().max(128).optional(),
   productId: z.string().max(128).optional(),
+  statusId: z.string().trim().max(128).optional(),
   amount: z.string().trim().max(16).regex(brazilianDecimal, 'Informe o valor em reais, usando vírgula para os centavos.').refine(
     (value) => Number(value.replace(',', '.')) > 0,
-    'O valor do item deve ser maior que zero.',
+    'O valor total do item deve ser maior que zero.',
+  ),
+  unitPrice: z.string().trim().max(16).regex(brazilianDecimal, 'Informe o valor em reais, usando vírgula para os centavos.').refine(
+    (value) => Number(value.replace(',', '.')) >= 0,
+    'O valor unitário não pode ser negativo.',
   ),
   commissionRate: z.string().trim().max(6).regex(brazilianDecimal, 'Informe o percentual, usando vírgula para as casas decimais.').refine(
     (value) => Number(value.replace(',', '.')) >= 0 && Number(value.replace(',', '.')) <= 100,
@@ -29,10 +34,14 @@ export const saleItemSchema = z.object({
     (value) => Number.isFinite(Number(value.replace(',', '.'))) && Number(value.replace(',', '.')) > 0,
     'A quantidade deve ser maior que zero.',
   ),
+  deliveryOn: optionalDate.refine((value) => !value || isCalendarDate(value), 'Informe uma data de entrega válida.'),
   notes: z.string().trim().max(500, 'A observação do item pode ter até 500 caracteres.').optional(),
 }).superRefine((value, context) => {
   if (value.productId && !/^[A-Za-z0-9_-]{1,128}$/.test(value.productId)) {
     context.addIssue({ code: 'custom', path: ['productId'], message: 'Produto inválido.' })
+  }
+  if (value.statusId && !/^[A-Za-z0-9_-]{1,128}$/.test(value.statusId)) {
+    context.addIssue({ code: 'custom', path: ['statusId'], message: 'Status inválido.' })
   }
 })
 

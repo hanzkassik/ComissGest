@@ -1,12 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Plus, Tag, X } from 'lucide-react'
+import { Palette, Plus, Tag, X } from 'lucide-react'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useForm } from 'react-hook-form'
 import { useAuth } from '../hooks/useAuth'
+import { FormField } from './FormField'
 import { saleStatusSchema, type SaleStatusFormValues } from '../schemas/saleStatusSchemas'
 import { createSaleStatus } from '../services/saleStatusService'
-import type { SaleStatus } from '../types/saleStatus'
+import { DEFAULT_SALE_STATUS_COLOR, type SaleStatus } from '../types/saleStatus'
 
 function statusErrorMessage(error: unknown) {
   const code = typeof error === 'object' && error !== null && 'code' in error
@@ -29,14 +30,14 @@ export function SaleStatusQuickCreateModal({ companyId, onClose, onCreated }: Sa
   const [submitError, setSubmitError] = useState('')
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SaleStatusFormValues>({
     resolver: zodResolver(saleStatusSchema),
-    defaultValues: { name: '' },
+    defaultValues: { name: '', color: DEFAULT_SALE_STATUS_COLOR },
   })
 
   async function submit(values: SaleStatusFormValues) {
     if (!currentUser) return
     setSubmitError('')
     try {
-      onCreated(await createSaleStatus(companyId, currentUser.uid, values.name))
+      onCreated(await createSaleStatus(companyId, currentUser.uid, values.name, values.color))
     } catch (error: unknown) {
       console.error('Falha ao cadastrar status de venda:', error)
       setSubmitError(statusErrorMessage(error))
@@ -49,6 +50,7 @@ export function SaleStatusQuickCreateModal({ companyId, onClose, onCreated }: Sa
       <h2 id="sale-status-quick-title">Adicionar status</h2><p>Crie um status para os pedidos desta empresa.</p>
       <form className="form-stack" onSubmit={(event) => { event.stopPropagation(); void handleSubmit(submit)(event) }} noValidate>
         <label className="field-label">Nome do status<input className="sale-status-name-input" autoFocus maxLength={60} placeholder="Ex.: Separando pedido" {...register('name')} />{errors.name?.message && <span className="field-error">{errors.name.message}</span>}</label>
+        <FormField id="sale-status-quick-color" label="Cor do status" icon={Palette} type="color" className="sale-status-color-input" registration={register('color')} error={errors.color?.message} />
         {submitError && <p className="field-error" role="alert">{submitError}</p>}
         <button className="primary-button" type="submit" disabled={isSubmitting}><Plus size={16} />{isSubmitting ? 'Salvando…' : 'Salvar status'}</button>
       </form>

@@ -12,13 +12,14 @@ import {
   where,
   type QueryConstraint,
   type QueryDocumentSnapshot,
+  type Transaction,
 } from 'firebase/firestore'
 import { firestore } from '../firebase/firestore'
 import type { Sale, SaleFilters, SaleItem, SalePage, SaleTotals } from '../types/sale'
 import { calculateCommissionCents, dateWithLocalTime, parseBrazilianDecimalToInteger, parseLocalDateAfterEnd, parseLocalDateStart } from '../utils/currency'
 import type { SaleFormValues } from '../schemas/saleSchemas'
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 20
 const LEGACY_FINISHED_STATUS_ID = 'finished'
 
 function filteredSalesQuery(companyId: string, userId: string, filters: SaleFilters) {
@@ -26,6 +27,12 @@ function filteredSalesQuery(companyId: string, userId: string, filters: SaleFilt
   if (filters.startDate) constraints.push(where('soldAt', '>=', Timestamp.fromDate(parseLocalDateStart(filters.startDate))))
   if (filters.endDate) constraints.push(where('soldAt', '<', Timestamp.fromDate(parseLocalDateAfterEnd(filters.endDate))))
   return query(collection(firestore, 'companies', companyId, 'sales'), ...constraints)
+}
+
+function matchesStatusFilters(sale: Sale, filters: SaleFilters) {
+  if (filters.orderStatusId && sale.statusId !== filters.orderStatusId) return false
+  if (filters.itemStatusId && !sale.items.some((item) => item.statusId === filters.itemStatusId)) return false
+  return true
 }
 
 function mapItem(data: Record<string, unknown>, itemId: string): SaleItem {
@@ -39,29 +46,37 @@ function mapItem(data: Record<string, unknown>, itemId: string): SaleItem {
     || !Number.isFinite(data.quantity)) {
     throw new Error(`O item ${itemId} contém dados inválidos.`)
   }
+  const unitPriceCents = data.unitPriceCents === undefined
+    ? Math.round(data.amountCents / data.quantity)
+    : data.unitPriceCents
+  if (typeof unitPriceCents !== 'number' || !Number.isSafeInteger(unitPriceCents) || unitPriceCents < 0) {
+    throw new Error(`O item ${itemId} contém um valor unitário inválido.`)
+  }
   return {
     itemId,
     amountCents: data.amountCents,
+    unitPriceCents,
     commissionRateBps: data.commissionRateBps,
     commissionCents: data.commissionCents,
     quantity: data.quantity,
     ...(typeof data.productId === 'string' ? { productId: data.productId } : {}),
+    ...(typeof data.statusId === 'string' ? { statusId: data.statusId } : {}),
+    ...(data.deliveryAt instanceof Timestamp ? { deliveryAt: data.deliveryAt } : {}),
     ...(typeof data.notes === 'string' ? { notes: data.notes } : {}),
   }
 }
 
-export function mapSaleDocument(saleDoc: QueryDocumentSnapshot): Sale {
-  const data = saleDoc.data()
+function mapSaleData(saleId: string, data: Record<string, unknown>): Sale {
   if (typeof data.userId !== 'string' || !(data.soldAt instanceof Timestamp) || !(data.createdAt instanceof Timestamp)) {
-    throw new Error(`A venda ${saleDoc.id} contém dados inválidos.`)
+    throw new Error(`A venda ${saleId} contém dados inválidos.`)
   }
   if (Array.isArray(data.items)) {
     const items = data.items.map((item: unknown, index: number) => {
-      if (!item || typeof item !== 'object') throw new Error(`A venda ${saleDoc.id} contém um item inválido.`)
-      return mapItem(item as Record<string, unknown>, typeof (item as { itemId?: unknown }).itemId === 'string' ? (item as { itemId: string }).itemId : `${saleDoc.id}-${index + 1}`)
+      if (!item || typeof item !== 'object') throw new Error(`A venda ${saleId} contém um item inválido.`)
+      return mapItem(item as Record<string, unknown>, typeof (item as { itemId?: unknown }).itemId === 'string' ? (item as { itemId: string }).itemId : `${saleId}-${index + 1}`)
     })
     return {
-      saleId: saleDoc.id,
+      saleId,
       userId: data.userId,
       soldAt: data.soldAt,
       createdAt: data.createdAt,
@@ -75,37 +90,109 @@ export function mapSaleDocument(saleDoc: QueryDocumentSnapshot): Sale {
     }
   }
   return {
-    saleId: saleDoc.id,
+    saleId,
     userId: data.userId,
     soldAt: data.soldAt,
     createdAt: data.createdAt,
     statusId: LEGACY_FINISHED_STATUS_ID,
-    items: [mapItem({ ...data, quantity: 1 }, `${saleDoc.id}-legacy-item`)],
-    ...(typeof data.notes === 'string' ? { items: [mapItem({ ...data, quantity: 1, notes: data.notes }, `${saleDoc.id}-legacy-item`)] } : {}),
+    items: [mapItem({ ...data, quantity: 1 }, `${saleId}-legacy-item`)],
+    ...(typeof data.notes === 'string' ? { items: [mapItem({ ...data, quantity: 1, notes: data.notes }, `${saleId}-legacy-item`)] } : {}),
     legacyFormat: true,
   }
 }
 
+export function mapSaleDocument(saleDoc: QueryDocumentSnapshot): Sale {
+  return mapSaleData(saleDoc.id, saleDoc.data())
+}
+
 function itemData(values: SaleFormValues['items'][number]): SaleItem {
   const amountCents = parseBrazilianDecimalToInteger(values.amount, 2)
+  const unitPriceCents = parseBrazilianDecimalToInteger(values.unitPrice, 2)
   const commissionRateBps = parseBrazilianDecimalToInteger(values.commissionRate, 2)
   return {
     itemId: values.itemId || crypto.randomUUID(),
     amountCents,
+    unitPriceCents,
     commissionRateBps,
     commissionCents: calculateCommissionCents(amountCents, commissionRateBps),
     quantity: Number(values.quantity.replace(',', '.')),
     ...(values.productId ? { productId: values.productId } : {}),
+    ...(values.statusId ? { statusId: values.statusId } : {}),
+    ...(values.deliveryOn ? { deliveryAt: Timestamp.fromDate(parseLocalDateStart(values.deliveryOn)) } : {}),
     ...(values.notes?.trim() ? { notes: values.notes.trim() } : {}),
   }
 }
 
+function statusUsage(data: Record<string, unknown> | null) {
+  const usage = new Map<string, number>()
+  if (!data) return usage
+  if (typeof data.statusId === 'string') usage.set(data.statusId, 1)
+  if (Array.isArray(data.items)) {
+    for (const item of data.items) {
+      if (!item || typeof item !== 'object') continue
+      const statusId = (item as { statusId?: unknown }).statusId
+      if (typeof statusId === 'string') usage.set(statusId, (usage.get(statusId) ?? 0) + 1)
+    }
+  }
+  return usage
+}
+
+function itemStatusUsage(items: unknown[]) {
+  return items.reduce<Record<string, number>>((usage, item) => {
+    if (!item || typeof item !== 'object' || !('statusId' in item)) return usage
+    const statusId = item.statusId
+    if (typeof statusId === 'string') usage[statusId] = (usage[statusId] ?? 0) + 1
+    return usage
+  }, {})
+}
+
+async function updateStatusUsage(
+  transaction: Transaction,
+  companyId: string,
+  saleId: string,
+  previous: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+) {
+  const previousUsage = statusUsage(previous)
+  const nextUsage = statusUsage(next)
+  const statusIds = new Set([...previousUsage.keys(), ...nextUsage.keys()])
+  const deltas = [...statusIds].map((statusId) => ({
+    statusId,
+    delta: (nextUsage.get(statusId) ?? 0) - (previousUsage.get(statusId) ?? 0),
+  })).filter(({ delta }) => delta !== 0)
+  if (deltas.length === 0) return
+
+  const snapshots = await Promise.all(deltas.map(({ statusId }) => transaction.get(doc(firestore, 'companies', companyId, 'saleStatuses', statusId))))
+  const currentCounts = deltas.map(({ delta }, index) => {
+    const snapshot = snapshots[index]
+    if (!snapshot.exists()) throw new Error('SALE_STATUS_UNAVAILABLE')
+    const data = snapshot.data()
+    if (!data) throw new Error('SALE_STATUS_UNAVAILABLE')
+    const currentCount = Number(data.usageCount)
+    if (!Number.isSafeInteger(currentCount) || currentCount < Math.abs(Math.min(delta, 0))) {
+      throw new Error('SALE_STATUS_COUNT_INVALID')
+    }
+    if (delta > 0 && data.active !== true) throw new Error('SALE_STATUS_UNAVAILABLE')
+    return currentCount
+  })
+
+  deltas.forEach(({ statusId, delta }, index) => {
+    transaction.update(doc(firestore, 'companies', companyId, 'saleStatuses', statusId), {
+      usageCount: currentCounts[index] + delta,
+      lastUsageChangeSaleId: saleId,
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
 function saleData(userId: string, values: SaleFormValues) {
+  const items = values.items.map(itemData)
   return {
     userId,
     soldAt: Timestamp.fromDate(dateWithLocalTime(values.soldOn, values.soldTime)),
     ...(values.statusId ? { statusId: values.statusId } : {}),
-    items: values.items.map(itemData),
+    items,
+    itemStatusUsage: itemStatusUsage(values.items),
     ...(values.customerName?.trim() ? { customerName: values.customerName.trim() } : {}),
     ...(values.customerPhone?.trim() ? { customerPhone: values.customerPhone.trim() } : {}),
     ...(values.externalNumber?.trim() ? { externalNumber: values.externalNumber.trim() } : {}),
@@ -122,103 +209,128 @@ export async function createSale(companyId: string, userId: string, values: Sale
   const saleRef = doc(collection(firestore, 'companies', companyId, 'sales'))
   const data = saleData(userId, values)
   await runTransaction(firestore, async (transaction) => {
-    const statusRef = values.statusId ? doc(firestore, 'companies', companyId, 'saleStatuses', values.statusId) : null
-    const statusSnapshot = statusRef ? await transaction.get(statusRef) : null
-    if (statusSnapshot && (!statusSnapshot.exists() || statusSnapshot.data().active !== true)) throw new Error('SALE_STATUS_UNAVAILABLE')
+    await updateStatusUsage(transaction, companyId, saleRef.id, null, data)
     transaction.set(saleRef, { ...data, createdAt: serverTimestamp() })
-    if (statusRef && statusSnapshot?.exists()) transaction.update(statusRef, { usageCount: (Number(statusSnapshot.data().usageCount) || 0) + 1, lastUsageChangeSaleId: saleRef.id, updatedAt: serverTimestamp() })
   })
 }
 
 export async function moveSaleToStatus(companyId: string, saleId: string, userId: string, nextStatusId: string): Promise<void> {
   const saleRef = doc(firestore, 'companies', companyId, 'sales', saleId)
-  const nextStatusRef = doc(firestore, 'companies', companyId, 'saleStatuses', nextStatusId)
 
   await runTransaction(firestore, async (transaction) => {
     const saleSnapshot = await transaction.get(saleRef)
     if (!saleSnapshot.exists() || saleSnapshot.data().userId !== userId) throw new Error('SALE_NOT_FOUND')
 
     const oldData = saleSnapshot.data()
-    const oldStatusId = typeof oldData.statusId === 'string' ? oldData.statusId : undefined
-    const oldStatusRef = oldStatusId && oldStatusId !== nextStatusId
-      ? doc(firestore, 'companies', companyId, 'saleStatuses', oldStatusId)
-      : null
-    const [nextStatusSnapshot, oldStatusSnapshot] = await Promise.all([
-      transaction.get(nextStatusRef),
-      oldStatusRef ? transaction.get(oldStatusRef) : Promise.resolve(null),
-    ])
-
-    if (!nextStatusSnapshot.exists() || nextStatusSnapshot.data().active !== true) throw new Error('SALE_STATUS_UNAVAILABLE')
-    if (oldStatusRef && (!oldStatusSnapshot?.exists() || Number(oldStatusSnapshot.data().usageCount) < 1)) {
-      throw new Error('SALE_STATUS_COUNT_INVALID')
-    }
-
-    if (oldStatusId === nextStatusId && Array.isArray(oldData.items)) return
-
+    if (oldData.statusId === nextStatusId && Array.isArray(oldData.items)) return
+    let nextData: Record<string, unknown>
     if (Array.isArray(oldData.items)) {
-      transaction.update(saleRef, { statusId: nextStatusId })
+      nextData = { ...oldData, statusId: nextStatusId }
     } else {
       if (!(oldData.soldAt instanceof Timestamp) || !(oldData.createdAt instanceof Timestamp)) {
         throw new Error('SALE_DATA_INVALID')
       }
       const item = mapItem({
         amountCents: oldData.amountCents,
+        unitPriceCents: oldData.amountCents,
         commissionRateBps: oldData.commissionRateBps,
         commissionCents: oldData.commissionCents,
         quantity: 1,
         ...(typeof oldData.productId === 'string' ? { productId: oldData.productId } : {}),
         ...(typeof oldData.notes === 'string' ? { notes: oldData.notes } : {}),
       }, `${saleId}-legacy-item`)
-      transaction.set(saleRef, {
+      nextData = {
         userId: oldData.userId,
         soldAt: oldData.soldAt,
         createdAt: oldData.createdAt,
         statusId: nextStatusId,
         items: [item],
-      })
+        itemStatusUsage: {},
+      }
     }
-
-    if (oldStatusRef && oldStatusSnapshot?.exists()) {
-      transaction.update(oldStatusRef, {
-        usageCount: Number(oldStatusSnapshot.data().usageCount) - 1,
-        lastUsageChangeSaleId: saleId,
-        updatedAt: serverTimestamp(),
-      })
-    }
-    transaction.update(nextStatusRef, {
-      usageCount: Number(nextStatusSnapshot.data().usageCount) + 1,
-      lastUsageChangeSaleId: saleId,
-      updatedAt: serverTimestamp(),
-    })
+    await updateStatusUsage(transaction, companyId, saleId, oldData, nextData)
+    transaction.set(saleRef, nextData)
   })
 }
 
-export async function updateSale(companyId: string, saleId: string, userId: string, values: SaleFormValues): Promise<void> {
+export async function moveSaleItemToStatus(
+  companyId: string,
+  saleId: string,
+  userId: string,
+  itemId: string,
+  nextStatusId: string,
+  nextSaleStatusId?: string,
+): Promise<void> {
   const saleRef = doc(firestore, 'companies', companyId, 'sales', saleId)
-  const data = saleData(userId, values)
+
   await runTransaction(firestore, async (transaction) => {
     const saleSnapshot = await transaction.get(saleRef)
     if (!saleSnapshot.exists() || saleSnapshot.data().userId !== userId) throw new Error('SALE_NOT_FOUND')
+
     const oldData = saleSnapshot.data()
-    const oldStatusId = typeof oldData.statusId === 'string' ? oldData.statusId : undefined
-    const nextStatusId = values.statusId || undefined
-    const oldStatusRef = oldStatusId ? doc(firestore, 'companies', companyId, 'saleStatuses', oldStatusId) : null
-    const nextStatusRef = nextStatusId ? doc(firestore, 'companies', companyId, 'saleStatuses', nextStatusId) : null
-    const statusRefs = oldStatusId === nextStatusId ? (nextStatusRef ? [nextStatusRef] : []) : [oldStatusRef, nextStatusRef].filter((ref) => ref !== null)
-    const statusSnapshots = await Promise.all(statusRefs.map((ref) => transaction.get(ref)))
-    const nextStatus = nextStatusRef ? statusSnapshots[statusRefs.indexOf(nextStatusRef)] : null
-    if (nextStatus && (!nextStatus.exists() || (oldStatusId !== nextStatusId && nextStatus.data().active !== true))) throw new Error('SALE_STATUS_UNAVAILABLE')
-    transaction.set(saleRef, { ...data, createdAt: oldData.createdAt })
-    if (oldStatusId !== nextStatusId) {
-      if (oldStatusRef) {
-        const oldStatus = statusSnapshots[statusRefs.indexOf(oldStatusRef)]
-        if (!oldStatus.exists() || Number(oldStatus.data().usageCount) < 1) throw new Error('SALE_STATUS_COUNT_INVALID')
-        transaction.update(oldStatusRef, { usageCount: Number(oldStatus.data().usageCount) - 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp() })
+    let foundItem = false
+    let previousStatusId: string | undefined
+    let baseData: Record<string, unknown> = oldData
+    let items: unknown[]
+    if (Array.isArray(oldData.items)) {
+      items = oldData.items.map((item: unknown, index: number) => {
+        if (!item || typeof item !== 'object') return item
+        const itemData = item as Record<string, unknown>
+        const storedItemId = typeof itemData.itemId === 'string' ? itemData.itemId : `${saleId}-${index + 1}`
+        if (storedItemId !== itemId) return item
+
+        foundItem = true
+        previousStatusId = typeof itemData.statusId === 'string' ? itemData.statusId : undefined
+        return { ...itemData, itemId: storedItemId, statusId: nextStatusId }
+      })
+    } else {
+      if (!(oldData.soldAt instanceof Timestamp) || !(oldData.createdAt instanceof Timestamp)) {
+        throw new Error('SALE_DATA_INVALID')
       }
-      if (nextStatusRef && nextStatus?.exists()) {
-        transaction.update(nextStatusRef, { usageCount: Number(nextStatus.data().usageCount) + 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp() })
+      const legacyItem = mapItem({
+        amountCents: oldData.amountCents,
+        unitPriceCents: oldData.amountCents,
+        commissionRateBps: oldData.commissionRateBps,
+        commissionCents: oldData.commissionCents,
+        quantity: 1,
+        ...(typeof oldData.productId === 'string' ? { productId: oldData.productId } : {}),
+        ...(typeof oldData.notes === 'string' ? { notes: oldData.notes } : {}),
+      }, `${saleId}-legacy-item`)
+      if (legacyItem.itemId !== itemId) throw new Error('SALE_ITEM_NOT_FOUND')
+      foundItem = true
+      items = [{ ...legacyItem, statusId: nextStatusId }]
+      baseData = {
+        userId: oldData.userId,
+        soldAt: oldData.soldAt,
+        createdAt: oldData.createdAt,
       }
     }
+    if (!foundItem) throw new Error('SALE_ITEM_NOT_FOUND')
+    const previousSaleStatusId = typeof baseData.statusId === 'string' ? baseData.statusId : undefined
+    if (previousStatusId === nextStatusId && (!nextSaleStatusId || previousSaleStatusId === nextSaleStatusId)) return
+
+    const nextData = {
+      ...baseData,
+      ...(nextSaleStatusId ? { statusId: nextSaleStatusId } : {}),
+      items,
+      itemStatusUsage: itemStatusUsage(items),
+    }
+    await updateStatusUsage(transaction, companyId, saleId, oldData, nextData)
+    transaction.set(saleRef, nextData)
+  })
+}
+
+export async function updateSale(companyId: string, saleId: string, userId: string, values: SaleFormValues): Promise<Sale> {
+  const saleRef = doc(firestore, 'companies', companyId, 'sales', saleId)
+  const data = saleData(userId, values)
+  return runTransaction(firestore, async (transaction) => {
+    const saleSnapshot = await transaction.get(saleRef)
+    if (!saleSnapshot.exists() || saleSnapshot.data().userId !== userId) throw new Error('SALE_NOT_FOUND')
+    const oldData = saleSnapshot.data()
+    const updatedData = { ...data, createdAt: oldData.createdAt }
+    await updateStatusUsage(transaction, companyId, saleId, oldData, updatedData)
+    transaction.set(saleRef, updatedData)
+    return mapSaleData(saleId, updatedData)
   })
 }
 
@@ -229,15 +341,37 @@ export async function deleteSale(companyId: string, saleId: string, userId: stri
     if (!saleSnapshot.exists() || saleSnapshot.data().userId !== userId) throw new Error('SALE_NOT_FOUND')
     const data = saleSnapshot.data()
     if (!Array.isArray(data.items)) throw new Error('LEGACY_SALE_REQUIRES_MIGRATION')
-    const statusRef = typeof data.statusId === 'string' ? doc(firestore, 'companies', companyId, 'saleStatuses', data.statusId) : null
-    const statusSnapshot = statusRef ? await transaction.get(statusRef) : null
-    if (statusSnapshot && (!statusSnapshot.exists() || Number(statusSnapshot.data().usageCount) < 1)) throw new Error('SALE_STATUS_COUNT_INVALID')
+    await updateStatusUsage(transaction, companyId, saleId, data, null)
     transaction.delete(saleRef)
-    if (statusRef && statusSnapshot?.exists()) transaction.update(statusRef, { usageCount: Number(statusSnapshot.data().usageCount) - 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp() })
   })
 }
 
 export async function getSalesPage(companyId: string, userId: string, filters: SaleFilters, cursor?: QueryDocumentSnapshot | null): Promise<SalePage> {
+  if (filters.orderStatusId || filters.itemStatusId) {
+    const sales: Sale[] = []
+    let scanCursor = cursor ?? null
+    while (true) {
+      const constraints: QueryConstraint[] = [orderBy('soldAt', 'desc')]
+      if (scanCursor) constraints.push(startAfter(scanCursor))
+      constraints.push(limit(PAGE_SIZE + 1))
+      const snapshot = await getDocs(query(filteredSalesQuery(companyId, userId, filters), ...constraints))
+      if (snapshot.empty) return { sales, cursor: scanCursor, hasMore: false }
+
+      let lastScanned = scanCursor
+      for (const saleDoc of snapshot.docs) {
+        const sale = mapSaleDocument(saleDoc)
+        if (matchesStatusFilters(sale, filters)) {
+          if (sales.length === PAGE_SIZE) return { sales, cursor: lastScanned, hasMore: true }
+          sales.push(sale)
+        }
+        lastScanned = saleDoc
+      }
+
+      scanCursor = lastScanned
+      if (snapshot.docs.length <= PAGE_SIZE) return { sales, cursor: scanCursor, hasMore: false }
+    }
+  }
+
   const constraints: QueryConstraint[] = [orderBy('soldAt', 'desc')]
   if (cursor) constraints.push(startAfter(cursor))
   constraints.push(limit(PAGE_SIZE + 1))

@@ -74,10 +74,6 @@ function periodDateLabel(period: DashboardInterval, now: Date, customStart = '',
   return `${now.getFullYear()} até hoje`
 }
 
-function overviewDateInput(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
 function localDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
@@ -115,9 +111,9 @@ function PeriodSummary({ summary, comparison, period }: {
     <div className="dashboard-period-top"><span className="dashboard-period-icon"><CalendarDays size={18} /></span><span className="dashboard-period-caption">{periodLabels[period]} · vs período anterior equivalente</span></div>
     <h2>Resumo do período</h2>
     <div className="dashboard-period-summary-values">
-      <div className="is-primary"><span>Comissões</span><strong>{formatBRLFromCents(summary.commissionCents)}</strong></div>
-      <div><span>Vendas</span><strong>{formatBRLFromCents(summary.salesCents)}</strong></div>
       <div><span>Registros</span><strong>{summary.count.toLocaleString('pt-BR')}</strong></div>
+      <div><span>Vendas</span><strong>{formatBRLFromCents(summary.salesCents)}</strong></div>
+      <div className="is-primary"><span>Comissões</span><strong>{formatBRLFromCents(summary.commissionCents)}</strong></div>
     </div>
     <div className="dashboard-period-changes"><ChangeIndicator label="Comissão" value={comparison.commissionPercent} /><ChangeIndicator label="Vendas" value={comparison.salesPercent} /></div>
   </article>
@@ -267,8 +263,8 @@ function GoalProgressPanel({ goals, sales, now, companyId, periodSummary, period
             <div className="dashboard-goal-metrics">
               <div><span>Meta do período</span><strong>{formatBRLFromCents(goal.targetCents)}</strong></div>
               <div className="is-highlight"><span>Realizado</span><strong>{formatBRLFromCents(metrics.realizedCents)}</strong></div>
-              <div><span>Falta para a meta</span><strong>{formatBRLFromCents(metrics.remainingCents)}</strong></div>
-              <div><span>Percentual restante</span><strong>{metrics.remainingPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</strong></div>
+              <div className={metrics.remainingCents > 0 ? 'is-goal-pending' : 'is-goal-complete'}><span>Falta para a meta</span><strong>{formatBRLFromCents(metrics.remainingCents)}</strong></div>
+              <div className={metrics.remainingPercent > 0 ? 'is-goal-pending' : 'is-goal-complete'}><span>Percentual restante</span><strong>{metrics.remainingPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</strong></div>
               <div><span>Meta diária</span><strong>{formatBRLFromCents(metrics.targetPerBusinessDayCents)}</strong></div>
               <div><span>Necessário por dia{metrics.isExpired ? ' · prazo encerrado' : ` · ${metrics.remainingBusinessDays} dias úteis restantes`}</span><strong>{formatBRLFromCents(metrics.requiredPerRemainingDayCents)}</strong></div>
               <div><span>Média por dia útil · {metrics.elapsedBusinessDays} dias</span><strong>{formatBRLFromCents(metrics.averagePerElapsedDayCents)}</strong></div>
@@ -474,7 +470,7 @@ export function DashboardPage() {
       ? <section className="dashboard-panel dashboard-goals-panel" role="status"><h2>Metas</h2><p>{goalsError}</p><Link className="quiet-button" to={`/empresas/${company.companyId}/metas`}>Gerenciar metas</Link></section>
       : <GoalProgressPanel goals={goals.filter((goal) => goalOverlapsRange(goal, rateBounds.currentStart, rateBounds.currentEnd))} sales={sales} now={now} companyId={company.companyId} periodSummary={overview.currentPeriod} periodStart={rateBounds.currentStart} periodEnd={rateBounds.currentEnd} />,
     'sales-evolution': <SalesEvolutionPanel overview={overview} period={appliedPeriod} />,
-    'sales-history': <SalesHistory key={`${rateBounds.currentStart.getTime()}-${rateBounds.currentEnd.getTime()}`} companyId={company.companyId} companyName={company.companyName} userId={currentUser?.uid ?? ''} containerClassName="dashboard-panel dashboard-sales-history" initialFilters={{ startDate: overviewDateInput(rateBounds.currentStart), endDate: overviewDateInput(new Date(rateBounds.currentEnd.getTime() - 1)) }} />,
+    'sales-history': <SalesHistory companyId={company.companyId} companyName={company.companyName} userId={currentUser?.uid ?? ''} containerClassName="dashboard-panel dashboard-sales-history" />,
   }
 
   return <main className="dashboard-page">

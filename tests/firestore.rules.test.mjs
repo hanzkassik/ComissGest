@@ -29,10 +29,10 @@ const goalPromptSettings = {
   monthlyGoalReminderMessage: 'Você ainda não cadastrou uma meta para este mês. Que tal definir seu objetivo e acompanhar seu progresso?',
 }
 const defaultStatuses = [
-  { statusId: 'created', name: 'Criado', sortOrder: 0, isFinalizedIndicator: false },
-  { statusId: 'in-fabrication', name: 'Em fabricação', sortOrder: 1, isFinalizedIndicator: false },
-  { statusId: 'awaiting-delivery', name: 'Aguardando entrega', sortOrder: 2, isFinalizedIndicator: false },
-  { statusId: 'finished', name: 'Finalizado', sortOrder: 3, isFinalizedIndicator: true },
+  { statusId: 'created', name: 'Criado', color: '#187f63', sortOrder: 0, isFinalizedIndicator: false },
+  { statusId: 'in-fabrication', name: 'Em fabricação', color: '#3877c8', sortOrder: 1, isFinalizedIndicator: false },
+  { statusId: 'awaiting-delivery', name: 'Aguardando entrega', color: '#b7791f', sortOrder: 2, isFinalizedIndicator: false },
+  { statusId: 'finished', name: 'Finalizado', color: '#39834a', sortOrder: 3, isFinalizedIndicator: true },
 ]
 
 before(async () => {
@@ -430,12 +430,15 @@ test('status de venda é legível e administrável por qualquer membro da empres
   const ownerDb = testEnvironment.authenticatedContext('alice').firestore()
   const memberDb = testEnvironment.authenticatedContext('bob').firestore()
   const newStatus = {
-    name: 'Em separação', sortOrder: 4, active: true, isFinalizedIndicator: false,
+    name: 'Em separação', color: '#7856a8', sortOrder: 4, active: true, isFinalizedIndicator: false,
     usageCount: 0, lastUsageChangeSaleId: null, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     createdBy: 'alice', updatedBy: 'alice',
   }
   await assertSucceeds(getDocs(collection(memberDb, 'companies', companyId, 'saleStatuses')))
   await assertSucceeds(setDoc(doc(ownerDb, 'companies', companyId, 'saleStatuses', 'packing'), newStatus))
+  await assertFails(setDoc(doc(ownerDb, 'companies', companyId, 'saleStatuses', 'invalid-color'), {
+    ...newStatus, color: 'blue',
+  }))
   await assertSucceeds(setDoc(doc(memberDb, 'companies', companyId, 'saleStatuses', 'quality-check'), {
     ...newStatus, name: 'Conferência', createdBy: 'bob', updatedBy: 'bob',
   }))
@@ -448,6 +451,86 @@ test('status de venda é legível e administrável por qualquer membro da empres
     await updateDoc(doc(context.firestore(), 'companies', companyId, 'saleStatuses', 'finished'), { usageCount: 1 })
   })
   await assertFails(deleteDoc(doc(memberDb, 'companies', companyId, 'saleStatuses', 'finished')))
+})
+
+test('conta status associados a itens e bloqueia a exclusão até remover as referências', async () => {
+  const companyId = 'company-alice'
+  await seedCompany('alice', companyId)
+  const db = testEnvironment.authenticatedContext('alice').firestore()
+  const saleId = 'sale-with-item-status'
+  const saleRef = doc(db, 'companies', companyId, 'sales', saleId)
+  const createdStatusRef = doc(db, 'companies', companyId, 'saleStatuses', 'created')
+  const fabricationStatusRef = doc(db, 'companies', companyId, 'saleStatuses', 'in-fabrication')
+  const finishedStatusRef = doc(db, 'companies', companyId, 'saleStatuses', 'finished')
+  const sale = {
+    ...transactionSaleData('alice', serverTimestamp(), 'created'),
+    itemStatusUsage: { 'in-fabrication': 2 },
+    items: [
+      { itemId: 'item-1', amountCents: 5000, commissionRateBps: 1000, commissionCents: 500, quantity: 1, statusId: 'in-fabrication' },
+      { itemId: 'item-2', amountCents: 5000, commissionRateBps: 1000, commissionCents: 500, quantity: 1, statusId: 'in-fabrication' },
+    ],
+  }
+  const createBatch = writeBatch(db)
+  createBatch.set(saleRef, sale)
+  createBatch.update(createdStatusRef, {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  createBatch.update(fabricationStatusRef, {
+    usageCount: 2, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(createBatch.commit())
+  await assertFails(deleteDoc(fabricationStatusRef))
+
+  const editBatch = writeBatch(db)
+  editBatch.update(saleRef, {
+    items: [
+      { itemId: 'item-1', amountCents: 5000, commissionRateBps: 1000, commissionCents: 500, quantity: 1, statusId: 'in-fabrication' },
+      { itemId: 'item-2', amountCents: 5000, commissionRateBps: 1000, commissionCents: 500, quantity: 1, statusId: 'finished' },
+    ],
+    itemStatusUsage: { 'in-fabrication': 1, finished: 1 },
+  })
+  editBatch.update(fabricationStatusRef, {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  editBatch.update(finishedStatusRef, {
+    usageCount: 1, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(editBatch.commit())
+  await assertFails(deleteDoc(fabricationStatusRef))
+
+  const finalizeBatch = writeBatch(db)
+  finalizeBatch.update(saleRef, {
+    statusId: 'finished',
+    items: [
+      { itemId: 'item-1', amountCents: 5000, commissionRateBps: 1000, commissionCents: 500, quantity: 1, statusId: 'finished' },
+      { itemId: 'item-2', amountCents: 5000, commissionRateBps: 1000, commissionCents: 500, quantity: 1, statusId: 'finished' },
+    ],
+    itemStatusUsage: { finished: 2 },
+  })
+  finalizeBatch.update(createdStatusRef, {
+    usageCount: 0, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  finalizeBatch.update(fabricationStatusRef, {
+    usageCount: 0, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  finalizeBatch.update(finishedStatusRef, {
+    usageCount: 3, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(finalizeBatch.commit())
+
+  const deleteBatch = writeBatch(db)
+  deleteBatch.delete(saleRef)
+  deleteBatch.update(createdStatusRef, {
+    usageCount: 0, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  deleteBatch.update(fabricationStatusRef, {
+    usageCount: 0, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  deleteBatch.update(finishedStatusRef, {
+    usageCount: 0, lastUsageChangeSaleId: saleId, updatedAt: serverTimestamp(),
+  })
+  await assertSucceeds(deleteBatch.commit())
+  await assertSucceeds(deleteDoc(fabricationStatusRef))
 })
 
 test('permite a data de venda escolhida no passado e nega datas futuras', async () => {

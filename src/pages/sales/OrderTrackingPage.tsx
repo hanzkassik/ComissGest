@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, CircleAlert, ClipboardList, GripVertical, Phone, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, CircleAlert, ClipboardList, GripVertical, Phone, RefreshCw, X } from 'lucide-react'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
@@ -6,14 +6,21 @@ import { AccountMenu } from '../../components/AccountMenu'
 import { BrandMark } from '../../components/BrandMark'
 import { LoadingSkeleton } from '../../components/LoadingSkeleton'
 import { SaleEditModal } from '../../components/SaleEditModal'
+import { SaleStatusBadge } from '../../components/SaleStatusBadge'
 import { useAuth } from '../../hooks/useAuth'
 import { useCompany } from '../../hooks/useCompany'
 import { getCompanyProducts } from '../../services/productService'
-import { ensureDefaultSaleStatuses, getCompanySaleStatuses } from '../../services/saleStatusService'
-import { getSalesForExport, moveSaleToStatus, updateSale } from '../../services/saleService'
+import { ensureDefaultSaleStatuses, getCompanySaleStatuses, resolveFinalizedSaleStatus } from '../../services/saleStatusService'
+import { getSalesForExport, moveSaleItemToStatus, moveSaleToStatus, updateSale } from '../../services/saleService'
 import type { SaleFormValues } from '../../schemas/saleSchemas'
-import type { Sale } from '../../types/sale'
+import type { Sale, SaleItem } from '../../types/sale'
 import type { SaleStatus } from '../../types/saleStatus'
+import { formatBRLFromCents } from '../../utils/currency'
+
+type DraggedCard = { saleId: string; itemId?: string }
+type PendingItemMove = { sale: Sale; item: SaleItem; status: SaleStatus; finalizedStatus: SaleStatus }
+
+const UNASSIGNED_STATUS_ID = '__unassigned__'
 
 function moveErrorMessage(error: unknown) {
   const code = typeof error === 'object' && error !== null && 'code' in error
@@ -21,10 +28,12 @@ function moveErrorMessage(error: unknown) {
     : error instanceof Error ? error.message : ''
 
   if (code === 'SALE_NOT_FOUND') return 'Este pedido não está disponível para sua conta.'
+  if (code === 'SALE_ITEM_NOT_FOUND') return 'Este item não está mais disponível. Atualize o quadro e tente novamente.'
+  if (code === 'SALE_DATA_INVALID') return 'Os dados deste pedido estão inválidos e não puderam ser convertidos.'
   if (code === 'SALE_STATUS_UNAVAILABLE') return 'O status escolhido está inativo ou não existe mais. Atualize o quadro e tente novamente.'
   if (code === 'SALE_STATUS_COUNT_INVALID') return 'Não foi possível atualizar as contagens dos status. Atualize o quadro e tente novamente.'
   if (code.includes('permission-denied')) return 'O Firestore negou a alteração. Confira sua participação nesta empresa.'
-  return 'Não foi possível mover o pedido. Verifique a conexão e tente novamente.'
+  return 'Não foi possível mover o pedido ou item. Verifique a conexão e tente novamente.'
 }
 
 function quantityLabel(quantity: number) {
@@ -70,9 +79,12 @@ export function OrderTrackingPage() {
   const [loadError, setLoadError] = useState('')
   const [moveError, setMoveError] = useState('')
   const [movingSaleId, setMovingSaleId] = useState<string | null>(null)
-  const [draggedSaleId, setDraggedSaleId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'order' | 'item'>('order')
+  const [draggedCard, setDraggedCard] = useState<DraggedCard | null>(null)
   const [dropTargetStatusId, setDropTargetStatusId] = useState<string | null>(null)
   const [collapsedStatusIds, setCollapsedStatusIds] = useState<Set<string>>(() => new Set())
+  const [pendingItemMove, setPendingItemMove] = useState<PendingItemMove | null>(null)
+  const [finalizingSale, setFinalizingSale] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState('')
@@ -110,7 +122,7 @@ export function OrderTrackingPage() {
   useEffect(() => () => middleAutoScrollCleanup.current?.(), [])
 
   useEffect(() => {
-    if (!draggedSaleId) return
+    if (!draggedCard) return
 
     function updateDraggedPointer(event: globalThis.DragEvent) {
       dragPointerX.current = event.clientX
@@ -143,14 +155,17 @@ export function OrderTrackingPage() {
       document.removeEventListener('dragover', updateDraggedPointer, true)
       window.cancelAnimationFrame(frameId)
     }
-  }, [draggedSaleId])
+  }, [draggedCard])
 
   const visibleStatuses = useMemo(
     () => statuses
-      .filter((status) => status.active || sales.some((sale) => sale.statusId === status.statusId))
+      .filter((status) => status.active || sales.some((sale) => viewMode === 'order'
+        ? sale.statusId === status.statusId
+        : sale.items.some((item) => item.statusId === status.statusId)))
       .sort((left, right) => left.sortOrder - right.sortOrder),
-    [sales, statuses],
+    [sales, statuses, viewMode],
   )
+  const hasUnassignedItems = viewMode === 'item' && sales.some((sale) => sale.items.some((item) => !item.statusId))
 
   function toggleStatus(statusId: string) {
     setCollapsedStatusIds((current) => {
@@ -182,6 +197,54 @@ export function OrderTrackingPage() {
     }
   }
 
+  async function persistItemMove(sale: Sale, item: SaleItem, status: SaleStatus, nextSaleStatusId?: string) {
+    if (!company || !currentUser || movingSaleId) return
+    setMovingSaleId(sale.saleId)
+    setFinalizingSale(Boolean(nextSaleStatusId))
+    setMoveError('')
+    try {
+      await moveSaleItemToStatus(company.companyId, sale.saleId, currentUser.uid, item.itemId, status.statusId, nextSaleStatusId)
+      setSales((current) => current.map((currentSale) => currentSale.saleId !== sale.saleId
+        ? currentSale
+        : {
+          ...currentSale,
+          ...(nextSaleStatusId ? { statusId: nextSaleStatusId } : {}),
+          legacyFormat: undefined,
+          items: currentSale.items.map((currentItem) => currentItem.itemId === item.itemId
+            ? { ...currentItem, statusId: status.statusId }
+            : currentItem),
+        }))
+      setPendingItemMove(null)
+    } catch (error) {
+      console.error('Falha ao mover item no acompanhamento de pedidos:', error)
+      setMoveError(moveErrorMessage(error))
+    } finally {
+      setMovingSaleId(null)
+      setFinalizingSale(false)
+    }
+  }
+
+  function moveItem(sale: Sale, item: SaleItem, status: SaleStatus) {
+    if (movingSaleId || !status.active || item.statusId === status.statusId) return
+    const finalizedStatus = resolveFinalizedSaleStatus(statuses.filter((candidate) => candidate.active))
+    const completesSale = finalizedStatus?.statusId === status.statusId
+      && sale.statusId !== finalizedStatus.statusId
+      && sale.items.every((otherItem) => otherItem.itemId === item.itemId || otherItem.statusId === finalizedStatus.statusId)
+
+    if (completesSale && finalizedStatus) {
+      setPendingItemMove({ sale, item, status, finalizedStatus })
+      setMoveError('')
+      return
+    }
+    void persistItemMove(sale, item, status)
+  }
+
+  function confirmItemMove(finalizeOrder: boolean) {
+    if (!pendingItemMove) return
+    const { sale, item, status, finalizedStatus } = pendingItemMove
+    void persistItemMove(sale, item, status, finalizeOrder ? finalizedStatus.statusId : undefined)
+  }
+
   async function saveSaleEdit(values: SaleFormValues) {
     if (!company || !currentUser || !editingSale) return
     setSavingEdit(true)
@@ -207,7 +270,7 @@ export function OrderTrackingPage() {
   function openSaleFromCard(event: ReactMouseEvent<HTMLElement>, sale: Sale) {
     const target = event.target
     if (target instanceof Element && target.closest('a, button, summary, select, input, textarea')) return
-    if (draggedSaleId) return
+    if (draggedCard) return
     openSaleEdit(sale)
   }
 
@@ -265,33 +328,147 @@ export function OrderTrackingPage() {
     middleAutoScrollCleanup.current = stop
   }
 
-  function startDragging(event: DragEvent<HTMLElement>, sale: Sale) {
+  function startDragging(event: DragEvent<HTMLElement>, sale: Sale, item?: SaleItem) {
     const target = event.target
     if (movingSaleId || (target instanceof Element && target.closest('select, a, button, summary'))) {
       event.preventDefault()
       return
     }
+    const card = { saleId: sale.saleId, ...(item ? { itemId: item.itemId } : {}) }
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', sale.saleId)
+    event.dataTransfer.setData('text/plain', JSON.stringify(card))
     dragPointerX.current = event.clientX
-    setDraggedSaleId(sale.saleId)
+    setDraggedCard(card)
   }
 
   function allowDrop(event: DragEvent<HTMLElement>, status: SaleStatus) {
-    if (!status.active || !draggedSaleId || movingSaleId) return
+    if (!status.active || !draggedCard || movingSaleId) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     setDropTargetStatusId(status.statusId)
   }
 
   function dropSale(event: DragEvent<HTMLElement>, status: SaleStatus) {
-    if (!status.active) return
+    if (!status.active || !draggedCard) return
     event.preventDefault()
-    const saleId = event.dataTransfer.getData('text/plain') || draggedSaleId
-    setDraggedSaleId(null)
+    const card = draggedCard
+    setDraggedCard(null)
     dragPointerX.current = null
     setDropTargetStatusId(null)
-    if (saleId) void moveSale(saleId, status.statusId)
+    if (card.itemId) {
+      const sale = sales.find((item) => item.saleId === card.saleId)
+      const saleItem = sale?.items.find((item) => item.itemId === card.itemId)
+      const nextStatus = statuses.find((item) => item.statusId === status.statusId)
+      if (sale && saleItem && nextStatus) moveItem(sale, saleItem, nextStatus)
+      return
+    }
+    void moveSale(card.saleId, status.statusId)
+  }
+
+  function renderOrderCard(sale: Sale) {
+    const phone = sale.customerPhone?.trim()
+    const formattedPhone = formatCardPhone(phone)
+    const soldAt = sale.soldAt.toDate()
+    const deliveryAt = sale.deliveryAt?.toDate()
+    const isMoving = movingSaleId === sale.saleId
+    return <article
+      className={`order-kanban-card${draggedCard?.saleId === sale.saleId && !draggedCard.itemId ? ' is-dragging' : ''}${isMoving ? ' is-moving' : ''}`}
+      key={sale.saleId}
+      draggable={!movingSaleId}
+      role="button"
+      tabIndex={0}
+      aria-label={`Editar pedido ${sale.externalNumber?.trim() || 'sem número'} de ${sale.customerName?.trim() || 'cliente não informado'}`}
+      onClick={(event) => openSaleFromCard(event, sale)}
+      onKeyDown={(event) => openSaleFromKeyboard(event, sale)}
+      onDragStart={(event) => startDragging(event, sale)}
+      onDragEnd={() => { setDraggedCard(null); dragPointerX.current = null; setDropTargetStatusId(null) }}
+      aria-busy={isMoving}
+    >
+      <div className="order-kanban-card-heading"><strong>{sale.customerName?.trim() || 'Cliente não informado'}</strong><GripVertical size={16} aria-hidden="true" /></div>
+      <div className="order-kanban-card-meta">
+        <span>{phone
+          ? <><Phone size={13} /><a href={`tel:${phone.replace(/[^\d+]/g, '')}`}>{formattedPhone}</a></>
+          : <><Phone size={13} />Telefone não informado</>}</span>
+        <span><strong>Pedido:</strong> {sale.externalNumber?.trim() || 'Sem número'}</span>
+        <span><CalendarDays size={13} /><strong>Data:</strong> {formatSaleDate(soldAt)}</span>
+        <span><CalendarDays size={13} /><strong>Previsão:</strong> {deliveryAt ? formatSaleDate(deliveryAt) : 'Não informada'}</span>
+      </div>
+      <ul className="order-kanban-item-list" aria-label="Itens do pedido">
+        {sale.items.map((item) => <li key={item.itemId}>
+          <div>
+            <span>{item.productId ? productNames[item.productId] ?? 'Produto indisponível' : 'Item sem produto'}</span>
+            <small>× {quantityLabel(item.quantity)} · Unitário {formatBRLFromCents(item.unitPriceCents ?? Math.round(item.amountCents / item.quantity))} · Total {formatBRLFromCents(item.amountCents)}</small>
+            {item.statusId && <SaleStatusBadge status={statuses.find((candidate) => candidate.statusId === item.statusId)} fallbackText="Status indisponível" />}
+            {item.deliveryAt && <small>Entrega: {formatSaleDate(item.deliveryAt.toDate())}</small>}
+          </div>
+        </li>)}
+      </ul>
+      {statuses.some((item) => item.active && item.statusId !== sale.statusId) && <details className="order-kanban-move-menu">
+        <summary aria-label={`Escolher novo status para o pedido ${sale.externalNumber || sale.saleId}`}><ArrowRight size={13} />{isMoving ? 'Atualizando…' : 'Alterar status'}</summary>
+        <div>
+          {statuses.filter((item) => item.active && item.statusId !== sale.statusId).map((item) => <button key={item.statusId} type="button" disabled={movingSaleId !== null} onClick={(event) => {
+            event.currentTarget.closest('details')?.removeAttribute('open')
+            void moveSale(sale.saleId, item.statusId)
+          }}>{item.name}</button>)}
+        </div>
+      </details>}
+      {sale.legacyFormat && <span className="order-kanban-legacy-hint">O formato antigo será convertido ao mover, preservando valores e observações.</span>}
+    </article>
+  }
+
+  function renderItemCard(sale: Sale, item: SaleItem, index: number) {
+    const phone = sale.customerPhone?.trim()
+    const formattedPhone = formatCardPhone(phone)
+    const itemName = item.productId ? productNames[item.productId] ?? 'Produto indisponível' : `Item ${index + 1}`
+    const soldAt = sale.soldAt.toDate()
+    const itemDeliveryAt = item.deliveryAt?.toDate()
+    const orderDeliveryAt = sale.deliveryAt?.toDate()
+    const isMoving = movingSaleId === sale.saleId
+    const itemStatus = statuses.find((candidate) => candidate.statusId === item.statusId)
+    const orderStatus = statuses.find((candidate) => candidate.statusId === sale.statusId)
+    const destinations = statuses.filter((candidate) => candidate.active && candidate.statusId !== item.statusId)
+    return <article
+      className={`order-kanban-card order-kanban-item-card${draggedCard?.saleId === sale.saleId && draggedCard.itemId === item.itemId ? ' is-dragging' : ''}${isMoving ? ' is-moving' : ''}`}
+      key={`${sale.saleId}-${item.itemId}`}
+      draggable={!movingSaleId}
+      role="button"
+      tabIndex={0}
+      aria-label={`Editar item ${itemName} do pedido ${sale.externalNumber?.trim() || 'sem número'}`}
+      onClick={(event) => openSaleFromCard(event, sale)}
+      onKeyDown={(event) => openSaleFromKeyboard(event, sale)}
+      onDragStart={(event) => startDragging(event, sale, item)}
+      onDragEnd={() => { setDraggedCard(null); dragPointerX.current = null; setDropTargetStatusId(null) }}
+      aria-busy={isMoving}
+    >
+      <div className="order-kanban-card-heading"><strong>{itemName}</strong><GripVertical size={16} aria-hidden="true" /></div>
+      <div className="order-kanban-card-meta">
+        <span><strong>Cliente:</strong> {sale.customerName?.trim() || 'Não informado'}</span>
+        <span>{phone
+          ? <><Phone size={13} /><a href={`tel:${phone.replace(/[^\d+]/g, '')}`}>{formattedPhone}</a></>
+          : <><Phone size={13} />Telefone não informado</>}</span>
+        <span><strong>Pedido:</strong> {sale.externalNumber?.trim() || 'Sem número'}</span>
+        <span><CalendarDays size={13} /><strong>Data:</strong> {formatSaleDate(soldAt)}</span>
+        <span><CalendarDays size={13} /><strong>Entrega do pedido:</strong> {orderDeliveryAt ? formatSaleDate(orderDeliveryAt) : 'Não informada'}</span>
+      </div>
+      <div className="order-kanban-item-card-details">
+        <span>Quantidade: {quantityLabel(item.quantity)}</span>
+        <span>Unitário: {formatBRLFromCents(item.unitPriceCents ?? Math.round(item.amountCents / item.quantity))}</span>
+        <strong>Total do item: {formatBRLFromCents(item.amountCents)}</strong>
+        <span>Status do item: <SaleStatusBadge status={itemStatus} fallbackText={item.statusId ? 'Status indisponível' : 'Sem status'} /></span>
+        {itemDeliveryAt && <span>Entrega do item: {formatSaleDate(itemDeliveryAt)}</span>}
+        <span>Status do pedido: <SaleStatusBadge status={orderStatus} fallbackText={sale.statusId ? 'Status indisponível' : 'Sem status'} /></span>
+      </div>
+      {destinations.length > 0 && <details className="order-kanban-move-menu">
+        <summary aria-label={`Escolher novo status para o item ${itemName}`}><ArrowRight size={13} />{isMoving ? 'Atualizando…' : 'Alterar status do item'}</summary>
+        <div>
+          {destinations.map((status) => <button key={status.statusId} type="button" disabled={movingSaleId !== null} onClick={(event) => {
+            event.currentTarget.closest('details')?.removeAttribute('open')
+            moveItem(sale, item, status)
+          }}>{status.name}</button>)}
+        </div>
+      </details>}
+      {sale.legacyFormat && <span className="order-kanban-legacy-hint">Mover este item converterá a venda para o formato atual, preservando seus valores e observações.</span>}
+    </article>
   }
 
   if (loadingCompany) return <LoadingSkeleton variant="app" />
@@ -306,24 +483,32 @@ export function OrderTrackingPage() {
           <Link className="sales-back-link" to={`/empresas/${company.companyId}`}><ArrowLeft size={14} /> Dashboard</Link>
           <span className="eyebrow"><ClipboardList size={15} /> {company.companyName}</span>
           <h1>Acompanhamento de pedido</h1>
-          <p>Arraste os pedidos para atualizar o status e acompanhar cada etapa.</p>
+          <p>{viewMode === 'order' ? 'Arraste os pedidos para atualizar o status e acompanhar cada etapa.' : 'Arraste cada item para atualizar seu status sem alterar os outros itens do pedido.'}</p>
+          <div className="order-tracking-view-toggle" role="group" aria-label="Visualizar acompanhamento por">
+            <button type="button" aria-pressed={viewMode === 'order'} onClick={() => setViewMode('order')}>Por pedido</button>
+            <button type="button" aria-pressed={viewMode === 'item'} onClick={() => setViewMode('item')}>Por item</button>
+          </div>
         </div>
         <button className="quiet-button order-tracking-refresh" type="button" onClick={() => void loadBoard()} disabled={loadingBoard || movingSaleId !== null}>
           <RefreshCw size={15} />{loadingBoard ? 'Atualizando…' : 'Atualizar'}
         </button>
       </div>
-      {moveError && <p className="order-tracking-error" role="alert"><CircleAlert size={15} />{moveError}</p>}
+      {moveError && !pendingItemMove && <p className="order-tracking-error" role="alert"><CircleAlert size={15} />{moveError}</p>}
       {loadError ? <div className="order-tracking-load-error" role="alert"><CircleAlert size={18} /><p>{loadError}</p><button className="quiet-button" type="button" onClick={() => void loadBoard()}>Tentar novamente</button></div>
         : loadingBoard ? <OrderBoardSkeleton />
-          : visibleStatuses.length === 0 ? <div className="order-tracking-empty"><ClipboardList size={24} /><h2>Nenhum status disponível</h2><p>Ative um status para começar a acompanhar os pedidos.</p><Link className="quiet-button" to={`/empresas/${company.companyId}/status-vendas`}>Gerenciar status</Link></div>
+          : visibleStatuses.length === 0 && !hasUnassignedItems ? <div className="order-tracking-empty"><ClipboardList size={24} /><h2>Nenhum status disponível</h2><p>Ative um status para começar a acompanhar os pedidos.</p><Link className="quiet-button" to={`/empresas/${company.companyId}/status-vendas`}>Gerenciar status</Link></div>
             : <div
               ref={boardRef}
-              className={`order-kanban-board${draggedSaleId || middleScrollActive ? ' is-interacting' : ''}${middleScrollActive ? ' is-middle-panning' : ''}`}
-              aria-label="Pedidos agrupados por status"
+              className={`order-kanban-board${draggedCard || middleScrollActive ? ' is-interacting' : ''}${middleScrollActive ? ' is-middle-panning' : ''}`}
+              aria-label={viewMode === 'order' ? 'Pedidos agrupados por status' : 'Itens agrupados por status'}
               onMouseDown={toggleMiddleAutoScroll}
             >
               {visibleStatuses.map((status) => {
                 const statusSales = sales.filter((sale) => sale.statusId === status.statusId)
+                const statusItems = sales.flatMap((sale) => sale.items
+                  .map((item, index) => ({ sale, item, index }))
+                  .filter(({ item }) => item.statusId === status.statusId))
+                const cardCount = viewMode === 'order' ? statusSales.length : statusItems.length
                 const isCollapsed = collapsedStatusIds.has(status.statusId)
                 return <section
                   className={`order-kanban-column${status.active ? '' : ' is-inactive'}${dropTargetStatusId === status.statusId ? ' is-drop-target' : ''}`}
@@ -334,65 +519,41 @@ export function OrderTrackingPage() {
                   onDrop={(event) => dropSale(event, status)}
                 >
                   <header className="order-kanban-column-heading">
-                    <div className="order-kanban-column-title"><h2 id={`order-kanban-heading-${status.statusId}`}>{status.name}</h2>{!status.active && <span className="order-kanban-inactive-label">Inativo</span>}</div>
+                    <div className="order-kanban-column-title"><h2 id={`order-kanban-heading-${status.statusId}`}><SaleStatusBadge status={status} /></h2>{!status.active && <span className="order-kanban-inactive-label">Inativo</span>}</div>
                     <div className="order-kanban-column-controls">
-                      <span className="order-kanban-count">{statusSales.length.toLocaleString('pt-BR')}</span>
-                      <button className="order-kanban-mobile-toggle" type="button" aria-expanded={!isCollapsed} aria-controls={`order-kanban-cards-${status.statusId}`} aria-label={`${isCollapsed ? 'Expandir' : 'Recolher'} pedidos de ${status.name}`} onClick={() => toggleStatus(status.statusId)}>
+                      <span className="order-kanban-count">{cardCount.toLocaleString('pt-BR')}</span>
+                      <button className="order-kanban-mobile-toggle" type="button" aria-expanded={!isCollapsed} aria-controls={`order-kanban-cards-${status.statusId}`} aria-label={`${isCollapsed ? 'Expandir' : 'Recolher'} ${viewMode === 'order' ? 'pedidos' : 'itens'} de ${status.name}`} onClick={() => toggleStatus(status.statusId)}>
                         <ChevronDown size={16} />
                       </button>
                     </div>
                   </header>
                   <div className={`order-kanban-cards${isCollapsed ? ' is-collapsed' : ''}`} id={`order-kanban-cards-${status.statusId}`}>
-                    {statusSales.map((sale) => {
-                      const phone = sale.customerPhone?.trim()
-                      const formattedPhone = formatCardPhone(phone)
-                      const soldAt = sale.soldAt.toDate()
-                      const deliveryAt = sale.deliveryAt?.toDate()
-                      const isMoving = movingSaleId === sale.saleId
-                      return <article
-                        className={`order-kanban-card${draggedSaleId === sale.saleId ? ' is-dragging' : ''}${isMoving ? ' is-moving' : ''}`}
-                        key={sale.saleId}
-                        draggable={!movingSaleId}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Editar pedido ${sale.externalNumber?.trim() || 'sem número'} de ${sale.customerName?.trim() || 'cliente não informado'}`}
-                        onClick={(event) => openSaleFromCard(event, sale)}
-                        onKeyDown={(event) => openSaleFromKeyboard(event, sale)}
-                        onDragStart={(event) => startDragging(event, sale)}
-                        onDragEnd={() => { setDraggedSaleId(null); dragPointerX.current = null; setDropTargetStatusId(null) }}
-                        aria-busy={isMoving}
-                      >
-                        <div className="order-kanban-card-heading"><strong>{sale.customerName?.trim() || 'Cliente não informado'}</strong><GripVertical size={16} aria-hidden="true" /></div>
-                        <div className="order-kanban-card-meta">
-                          <span>{phone
-                            ? <><Phone size={13} /><a href={`tel:${phone.replace(/[^\d+]/g, '')}`}>{formattedPhone}</a></>
-                            : <><Phone size={13} />Telefone não informado</>}</span>
-                          <span><strong>Pedido:</strong> {sale.externalNumber?.trim() || 'Sem número'}</span>
-                          <span><CalendarDays size={13} /><strong>Data:</strong> {formatSaleDate(soldAt)}</span>
-                          <span><CalendarDays size={13} /><strong>Previsão:</strong> {deliveryAt ? formatSaleDate(deliveryAt) : 'Não informada'}</span>
-                        </div>
-                        <ul className="order-kanban-item-list" aria-label="Itens do pedido">
-                          {sale.items.map((item) => <li key={item.itemId}>
-                            <span>{item.productId ? productNames[item.productId] ?? 'Produto indisponível' : 'Item sem produto'}</span>
-                            <small>× {quantityLabel(item.quantity)}</small>
-                          </li>)}
-                        </ul>
-                        {statuses.some((item) => item.active && item.statusId !== sale.statusId) && <details className="order-kanban-move-menu">
-                          <summary aria-label={`Escolher novo status para o pedido ${sale.externalNumber || sale.saleId}`}><ArrowRight size={13} />{isMoving ? 'Atualizando…' : 'Alterar status'}</summary>
-                          <div>
-                            {statuses.filter((item) => item.active && item.statusId !== sale.statusId).map((item) => <button key={item.statusId} type="button" disabled={movingSaleId !== null} onClick={(event) => {
-                              event.currentTarget.closest('details')?.removeAttribute('open')
-                              void moveSale(sale.saleId, item.statusId)
-                            }}>{item.name}</button>)}
-                          </div>
-                        </details>}
-                        {sale.legacyFormat && <span className="order-kanban-legacy-hint">O formato antigo será convertido ao mover, preservando valores e observações.</span>}
-                      </article>
-                    })}
-                    {statusSales.length === 0 && <p className="order-kanban-column-empty">{status.active ? 'Solte um pedido aqui.' : 'Nenhum pedido neste status.'}</p>}
+                    {viewMode === 'order'
+                      ? statusSales.map(renderOrderCard)
+                      : statusItems.map(({ sale, item, index }) => renderItemCard(sale, item, index))}
+                    {cardCount === 0 && <p className="order-kanban-column-empty">{status.active
+                      ? `Solte ${viewMode === 'order' ? 'um pedido' : 'um item'} aqui.`
+                      : `Nenhum ${viewMode === 'order' ? 'pedido' : 'item'} neste status.`}</p>}
                   </div>
                 </section>
               })}
+              {hasUnassignedItems && <section className="order-kanban-column is-unassigned" key={UNASSIGNED_STATUS_ID} aria-labelledby="order-kanban-heading-unassigned">
+                <header className="order-kanban-column-heading">
+                  <div className="order-kanban-column-title"><h2 id="order-kanban-heading-unassigned">Sem status</h2></div>
+                  <div className="order-kanban-column-controls">
+                    <span className="order-kanban-count">{sales.reduce((count, sale) => count + sale.items.filter((item) => !item.statusId).length, 0).toLocaleString('pt-BR')}</span>
+                    <button className="order-kanban-mobile-toggle" type="button" aria-expanded={!collapsedStatusIds.has(UNASSIGNED_STATUS_ID)} aria-controls="order-kanban-cards-unassigned" aria-label={`${collapsedStatusIds.has(UNASSIGNED_STATUS_ID) ? 'Expandir' : 'Recolher'} itens sem status`} onClick={() => toggleStatus(UNASSIGNED_STATUS_ID)}>
+                      <ChevronDown size={16} />
+                    </button>
+                  </div>
+                </header>
+                <div className={`order-kanban-cards${collapsedStatusIds.has(UNASSIGNED_STATUS_ID) ? ' is-collapsed' : ''}`} id="order-kanban-cards-unassigned">
+                  {sales.flatMap((sale) => sale.items
+                    .map((item, index) => ({ sale, item, index }))
+                    .filter(({ item }) => !item.statusId)
+                    .map(({ sale, item, index }) => renderItemCard(sale, item, index)))}
+                </div>
+              </section>}
             </div>}
     </div>
     </main>
@@ -409,5 +570,18 @@ export function OrderTrackingPage() {
       onProductCreated={(productId, name) => setProductNames((current) => ({ ...current, [productId]: name }))}
       onStatusCreated={(status) => setStatuses((current) => [...current.filter((item) => item.statusId !== status.statusId), status])}
     />}
+    {pendingItemMove && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !movingSaleId) { setPendingItemMove(null); setMoveError('') } }}>
+      <section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="order-item-finalization-title">
+        <div className="company-modal-heading"><span className="create-icon"><CircleAlert size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={() => { if (!movingSaleId) { setPendingItemMove(null); setMoveError('') } }} disabled={Boolean(movingSaleId)}><X size={18} /></button></div>
+        <h2 id="order-item-finalization-title">Finalizar também o pedido?</h2>
+        <p>Este é o último item do pedido “{pendingItemMove.sale.externalNumber?.trim() || pendingItemMove.sale.customerName?.trim() || pendingItemMove.sale.saleId}” a ser movido para “{pendingItemMove.finalizedStatus.name}”. Deseja finalizar também o pedido?</p>
+        {moveError && <p className="field-error" role="alert">{moveError}</p>}
+        <div className="sale-delete-actions sale-finalization-actions">
+          <button className="quiet-button" type="button" onClick={() => { setPendingItemMove(null); setMoveError('') }} disabled={Boolean(movingSaleId)}>Cancelar</button>
+          <button className="quiet-button" type="button" onClick={() => confirmItemMove(false)} disabled={Boolean(movingSaleId)}>{movingSaleId && !finalizingSale ? 'Atualizando…' : 'Não, apenas o item'}</button>
+          <button className="primary-button" type="button" onClick={() => confirmItemMove(true)} disabled={Boolean(movingSaleId)}>{movingSaleId && finalizingSale ? 'Finalizando…' : 'Sim, finalizar pedido'}</button>
+        </div>
+      </section>
+    </div>}
   </>
 }
