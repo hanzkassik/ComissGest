@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
   orderBy,
@@ -105,6 +106,12 @@ export function mapSaleDocument(saleDoc: QueryDocumentSnapshot): Sale {
   return mapSaleData(saleDoc.id, saleDoc.data())
 }
 
+export async function getSaleById(companyId: string, saleId: string, userId: string): Promise<Sale> {
+  const saleSnapshot = await getDoc(doc(firestore, 'companies', companyId, 'sales', saleId))
+  if (!saleSnapshot.exists() || saleSnapshot.data().userId !== userId) throw new Error('SALE_NOT_FOUND')
+  return mapSaleData(saleSnapshot.id, saleSnapshot.data())
+}
+
 function itemData(values: SaleFormValues['items'][number]): SaleItem {
   const amountCents = parseBrazilianDecimalToInteger(values.amount, 2)
   const unitPriceCents = parseBrazilianDecimalToInteger(values.unitPrice, 2)
@@ -141,7 +148,7 @@ function itemStatusUsage(items: unknown[]) {
   return items.reduce<Record<string, number>>((usage, item) => {
     if (!item || typeof item !== 'object' || !('statusId' in item)) return usage
     const statusId = item.statusId
-    if (typeof statusId === 'string') usage[statusId] = (usage[statusId] ?? 0) + 1
+    if (typeof statusId === 'string' && statusId.length > 0) usage[statusId] = (usage[statusId] ?? 0) + 1
     return usage
   }, {})
 }
@@ -192,7 +199,7 @@ function saleData(userId: string, values: SaleFormValues) {
     soldAt: Timestamp.fromDate(dateWithLocalTime(values.soldOn, values.soldTime)),
     ...(values.statusId ? { statusId: values.statusId } : {}),
     items,
-    itemStatusUsage: itemStatusUsage(values.items),
+    itemStatusUsage: itemStatusUsage(items),
     ...(values.customerName?.trim() ? { customerName: values.customerName.trim() } : {}),
     ...(values.customerPhone?.trim() ? { customerPhone: values.customerPhone.trim() } : {}),
     ...(values.externalNumber?.trim() ? { externalNumber: values.externalNumber.trim() } : {}),

@@ -1,7 +1,8 @@
 import { CalendarDays, ChevronDown, CircleAlert, ClipboardList, Download, MoreHorizontal, Pencil, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { QueryDocumentSnapshot } from 'firebase/firestore'
-import { deleteSale, getSalesForExport, getSalesPage, getSalesTotals, moveSaleItemToStatus, moveSaleToStatus, updateSale } from '../services/saleService'
+import { deleteSale, getSaleById, getSalesForExport, getSalesPage, getSalesTotals, moveSaleItemToStatus, moveSaleToStatus, updateSale } from '../services/saleService'
 import { LoadingSkeleton } from './LoadingSkeleton'
 import { getCompanyProducts } from '../services/productService'
 import { getCompanySaleStatuses, resolveFinalizedSaleStatus } from '../services/saleStatusService'
@@ -121,6 +122,10 @@ function matchesSearch(sale: Sale, query: string) {
     || (digitQuery.length > 0 && phone.replace(/\D/g, '').includes(digitQuery))
 }
 
+function hasSaleOverlayState(state: unknown) {
+  return typeof state === 'object' && state !== null && 'saleOverlay' in state && state.saleOverlay === true
+}
+
 export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, containerClassName = 'profile-card sales-history-card', initialFilters = {} }: SalesHistoryProps) {
   const [sales, setSales] = useState<Sale[]>([])
   const [productNames, setProductNames] = useState<Record<string, string>>({})
@@ -144,6 +149,8 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [viewingSale, setViewingSale] = useState<Sale | null>(null)
+  const [saleRouteLoading, setSaleRouteLoading] = useState(false)
+  const [saleRouteError, setSaleRouteError] = useState('')
   const [pendingStatusChange, setPendingStatusChange] = useState<{
     sale: Sale
     status: SaleStatus
@@ -164,6 +171,13 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
   const historySectionRef = useRef<HTMLElement | null>(null)
   const requestVersion = useRef(0)
   const searchVersion = useRef(0)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const saleRouteParts = (useParams()['*'] ?? '').split('/').filter(Boolean)
+  const routeSaleId = saleRouteParts[0] ?? ''
+  const routeAction = saleRouteParts[1] ?? ''
+  const invalidSaleRoute = saleRouteParts.length > 2 || (routeAction !== '' && routeAction !== 'editar')
+  const salesPath = `/empresas/${companyId}/vendas`
   const { companies } = useCompany()
   const { currentUser } = useAuth()
   const canManageStatuses = companies.some((company) => company.companyId === companyId)
@@ -222,6 +236,44 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
     }).catch((error: unknown) => console.error('Falha ao carregar opções do histórico de vendas:', error))
     return () => { active = false }
   }, [companyId, refreshKey])
+
+  useEffect(() => {
+    let active = true
+    void Promise.resolve().then(async () => {
+      if (!routeSaleId) {
+        setSaleRouteLoading(false)
+        setSaleRouteError('')
+        setViewingSale(null)
+        setEditingSale(null)
+        return
+      }
+      if (invalidSaleRoute) {
+        navigate(salesPath, { replace: true })
+        return
+      }
+
+      setSaleRouteLoading(true)
+      setSaleRouteError('')
+      if (routeAction !== 'editar') setEditingSale(null)
+      try {
+        const sale = await getSaleById(companyId, routeSaleId, userId)
+        if (!active) return
+        setViewingSale(sale)
+        if (routeAction === 'editar') setEditingSale(sale)
+      } catch (error: unknown) {
+        if (!active) return
+        console.error('Falha ao carregar venda pela rota:', error)
+        setSaleRouteError(error instanceof Error && error.message === 'SALE_NOT_FOUND'
+          ? 'O pedido não foi encontrado ou não está disponível nesta conta.'
+          : 'Não foi possível carregar o pedido. Verifique a conexão e tente novamente.')
+        setViewingSale(null)
+        setEditingSale(null)
+      } finally {
+        if (active) setSaleRouteLoading(false)
+      }
+    })
+    return () => { active = false }
+  }, [companyId, invalidSaleRoute, navigate, routeAction, routeSaleId, salesPath, userId])
 
   useEffect(() => {
     const queryText = searchQuery.trim()
@@ -290,6 +342,28 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
     if (key === 'itemStatusId') setDraftItemStatusId('')
   }
 
+  function openSale(sale: Sale) {
+    setViewingSale(sale)
+    setSaleRouteError('')
+    navigate(`${salesPath}/${encodeURIComponent(sale.saleId)}`, { state: { saleOverlay: true } })
+  }
+
+  function openSaleEdit(sale: Sale) {
+    setEditingSale(sale)
+    setActionError('')
+    navigate(`${salesPath}/${encodeURIComponent(sale.saleId)}/editar`, { state: { saleOverlay: true } })
+  }
+
+  function closeSaleView() {
+    if (hasSaleOverlayState(location.state)) navigate(-1)
+    else navigate(salesPath, { replace: true })
+  }
+
+  function closeSaleEdit() {
+    if (hasSaleOverlayState(location.state)) navigate(-1)
+    else navigate(`${salesPath}/${encodeURIComponent(routeSaleId)}`, { replace: true })
+  }
+
   async function loadMore() {
     if (!cursor || loadingMore) return
     const version = requestVersion.current
@@ -342,6 +416,8 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
       setEditingSale(null)
       setSearchRefreshKey((key) => key + 1)
       await loadFirstPage()
+      if (hasSaleOverlayState(location.state)) navigate(-1)
+      else navigate(`${salesPath}/${encodeURIComponent(updatedSale.saleId)}`, { replace: true })
     } catch (error) {
       console.error('Falha ao editar venda:', error)
       setActionError('Não foi possível salvar as alterações. Verifique a conexão e as regras do Firestore.')
@@ -419,7 +495,7 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
 
   function saleActions(sale: Sale) {
     return <details className="sale-actions-menu"><summary aria-label={`Ações da venda de ${formatSaleDate(sale)}`} title="Ações da venda"><MoreHorizontal size={18} /></summary><div className="sale-actions-popover" role="menu">
-      <button type="button" role="menuitem" title={sale.legacyFormat ? 'Ao salvar, esta venda antiga será convertida para o formato atual.' : undefined} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setEditingSale(sale); setActionError('') }}><Pencil size={15} />Editar venda</button>
+      <button type="button" role="menuitem" title={sale.legacyFormat ? 'Ao salvar, esta venda antiga será convertida para o formato atual.' : undefined} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); openSaleEdit(sale) }}><Pencil size={15} />Editar venda</button>
       <button type="button" role="menuitem" className="is-danger" disabled={sale.legacyFormat || deletingSaleId === sale.saleId} title={sale.legacyFormat ? 'Disponível após a migração dos registros antigos.' : undefined} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setDeletingSale(sale) }}><Trash2 size={15} />Excluir venda</button>
     </div></details>
   }
@@ -428,7 +504,7 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
     const status = sale.statusId ? statuses[sale.statusId] : undefined
     const itemTotal = sale.items.reduce((total, item) => total + item.amountCents, 0)
     const commissionTotal = sale.items.reduce((total, item) => total + item.commissionCents, 0)
-    return <div className="sales-order-header"><button className="sales-order-title" type="button" aria-label={`Visualizar pedido de ${sale.customerName || 'cliente não informado'}`} onClick={() => setViewingSale(sale)}><strong>{sale.customerName || 'Venda sem cliente'}</strong><span>{formatSaleDate(sale)}{sale.externalNumber ? ` · Nº ${sale.externalNumber}` : ''}{sale.customerPhone ? ` · ${sale.customerPhone}` : ''}</span>{sale.notes && <small>{sale.notes}</small>}</button><details className="sales-order-status-menu"><summary aria-label={`Alterar status do pedido ${sale.externalNumber || sale.saleId}`}><SaleStatusBadge status={status} fallbackText={sale.statusId ? 'Status indisponível' : 'Sem status'} /><ChevronDown size={14} /></summary><div role="menu">{Object.values(statuses).filter((option) => option.active && option.statusId !== sale.statusId).map((option) => <button key={option.statusId} type="button" role="menuitem" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPendingStatusChange({ sale, status: option }); setActionError('') }}>{option.name}</button>)}{Object.values(statuses).filter((option) => option.active && option.statusId !== sale.statusId).length === 0 && <span className="sales-order-status-empty">Nenhum outro status ativo</span>}</div></details><div className="sales-order-totals"><span>Venda <strong>{formatBRLFromCents(itemTotal)}</strong></span><span>Comissão <strong>{formatBRLFromCents(commissionTotal)}</strong></span></div>{saleActions(sale)}</div>
+    return <div className="sales-order-header"><button className="sales-order-title" type="button" aria-label={`Visualizar pedido de ${sale.customerName || 'cliente não informado'}`} onClick={() => openSale(sale)}><strong>{sale.customerName || 'Venda sem cliente'}</strong><span>{formatSaleDate(sale)}{sale.externalNumber ? ` · Nº ${sale.externalNumber}` : ''}{sale.customerPhone ? ` · ${sale.customerPhone}` : ''}</span>{sale.notes && <small>{sale.notes}</small>}</button><details className="sales-order-status-menu"><summary aria-label={`Alterar status do pedido ${sale.externalNumber || sale.saleId}`}><SaleStatusBadge status={status} fallbackText={sale.statusId ? 'Status indisponível' : 'Sem status'} /><ChevronDown size={14} /></summary><div role="menu">{Object.values(statuses).filter((option) => option.active && option.statusId !== sale.statusId).map((option) => <button key={option.statusId} type="button" role="menuitem" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPendingStatusChange({ sale, status: option }); setActionError('') }}>{option.name}</button>)}{Object.values(statuses).filter((option) => option.active && option.statusId !== sale.statusId).length === 0 && <span className="sales-order-status-empty">Nenhum outro status ativo</span>}</div></details><div className="sales-order-totals"><span>Venda <strong>{formatBRLFromCents(itemTotal)}</strong></span><span>Comissão <strong>{formatBRLFromCents(commissionTotal)}</strong></span></div>{saleActions(sale)}</div>
   }
 
   function itemStatusMenu(sale: Sale, item: SaleItem, index: number) {
@@ -496,8 +572,10 @@ export function SalesHistory({ companyId, companyName, userId, refreshKey = 0, c
       </> : null}
       <div className="sales-period-total" aria-live="polite"><div className="sales-period-total-heading"><strong>Total do período</strong><span>{filterDescription(filters, statuses)}</span></div><div className="sales-period-total-values"><div><span>Vendas</span><strong>{loadingTotals ? '…' : totals ? formatBRLFromCents(totals.amountCents) : '—'}</strong></div><div className="is-commission"><span>Comissões</span><strong>{loadingTotals ? '…' : totals ? formatBRLFromCents(totals.commissionCents) : '—'}</strong></div><div><span>Quantidade de vendas</span><strong>{loadingTotals ? '…' : totals ? totals.count.toLocaleString('pt-BR') : '—'}</strong></div></div></div>
     </section>
-    {viewingSale && <SaleViewModal sale={viewingSale} productNames={productNames} statuses={statuses} onEdit={() => { setEditingSale(viewingSale); setActionError('') }} onClose={() => setViewingSale(null)} />}
-    {editingSale && <SaleEditModal key={editingSale.saleId} sale={editingSale} companyId={companyId} statuses={Object.values(statuses)} canManageStatuses={canManageStatuses} saving={savingEdit} saveError={actionError} onClose={() => !savingEdit && setEditingSale(null)} onSave={saveEdit} onProductCreated={(productId, name) => setProductNames((current) => ({ ...current, [productId]: name }))} onStatusCreated={(status) => setStatuses((current) => ({ ...current, [status.statusId]: status }))} />}
+    {routeSaleId && !invalidSaleRoute && saleRouteLoading && viewingSale?.saleId !== routeSaleId && <div className="modal-backdrop"><section className="company-modal sale-view-modal" role="status" aria-label="Carregando pedido"><LoadingSkeleton variant="sales-history" page={false} /></section></div>}
+    {routeSaleId && !invalidSaleRoute && saleRouteError && <div className="modal-backdrop"><section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="sale-route-error-title"><div className="company-modal-heading"><span className="create-icon"><CircleAlert size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={closeSaleView}><X size={18} /></button></div><h2 id="sale-route-error-title">Não foi possível abrir o pedido</h2><p>{saleRouteError}</p><div className="sale-delete-actions"><button className="primary-button" type="button" onClick={closeSaleView}>Voltar às vendas</button></div></section></div>}
+    {routeSaleId && viewingSale?.saleId === routeSaleId && <SaleViewModal sale={viewingSale} productNames={productNames} statuses={statuses} onEdit={() => openSaleEdit(viewingSale)} onClose={closeSaleView} />}
+    {routeAction === 'editar' && routeSaleId && editingSale?.saleId === routeSaleId && <SaleEditModal key={editingSale.saleId} sale={editingSale} companyId={companyId} statuses={Object.values(statuses)} canManageStatuses={canManageStatuses} saving={savingEdit} saveError={actionError} onClose={() => !savingEdit && closeSaleEdit()} onSave={saveEdit} onProductCreated={(productId, name) => setProductNames((current) => ({ ...current, [productId]: name }))} onStatusCreated={(status) => setStatuses((current) => ({ ...current, [status.statusId]: status }))} />}
     {pendingStatusChange && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !changingStatus) setPendingStatusChange(null) }}><section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="sale-status-change-title"><div className="company-modal-heading"><span className="create-icon"><ChevronDown size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={() => !changingStatus && setPendingStatusChange(null)} disabled={changingStatus}><X size={18} /></button></div><h2 id="sale-status-change-title">{shouldOfferSaleFinalization ? 'Finalizar também o pedido?' : pendingStatusChange.itemId ? 'Alterar status do item?' : 'Alterar status do pedido?'}</h2><p>{shouldOfferSaleFinalization ? <>O item “{pendingItemName}” será o último do pedido “{pendingStatusChange.sale.externalNumber || pendingStatusChange.sale.customerName || pendingStatusChange.sale.saleId}” no status “{pendingStatusChange.finalizedSaleStatus?.name}”. Deseja finalizar também o pedido?</> : pendingStatusChange.itemId ? <>O item “{pendingItemName}” do pedido “{pendingStatusChange.sale.externalNumber || pendingStatusChange.sale.customerName || pendingStatusChange.sale.saleId}” será alterado para “{pendingStatusChange.status.name}”. O status do pedido e os demais itens não serão alterados.</> : <>O pedido “{pendingStatusChange.sale.externalNumber || pendingStatusChange.sale.customerName || pendingStatusChange.sale.saleId}” será movido para “{pendingStatusChange.status.name}”. Os status individuais dos itens não serão alterados.</>}</p>{actionError && <p className="field-error" role="alert">{actionError}</p>}<div className={`sale-delete-actions${shouldOfferSaleFinalization ? ' sale-finalization-actions' : ''}`}>{shouldOfferSaleFinalization ? <><button className="quiet-button" type="button" onClick={() => setPendingStatusChange(null)} disabled={changingStatus}>Cancelar</button><button className="quiet-button" type="button" onClick={() => void confirmStatusChange()} disabled={changingStatus}>{changingStatus && !finalizingSale ? 'Atualizando…' : 'Não, apenas o item'}</button><button className="primary-button" type="button" onClick={() => void confirmStatusChange(true)} disabled={changingStatus}>{changingStatus && finalizingSale ? 'Finalizando…' : 'Sim, finalizar venda'}</button></> : <><button className="quiet-button" type="button" onClick={() => setPendingStatusChange(null)} disabled={changingStatus}>Cancelar</button><button className="primary-button" type="button" onClick={() => void confirmStatusChange()} disabled={changingStatus}>{changingStatus ? 'Atualizando…' : 'Confirmar alteração'}</button></>}</div></section></div>}
     {deletingSale && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deletingSaleId) setDeletingSale(null) }}><section className="company-modal" role="alertdialog" aria-modal="true" aria-labelledby="sale-delete-title"><div className="company-modal-heading"><span className="create-icon"><Trash2 size={18} /></span><button className="modal-close-button" type="button" aria-label="Fechar" onClick={() => setDeletingSale(null)} disabled={Boolean(deletingSaleId)}><X size={18} /></button></div><h2 id="sale-delete-title">Excluir venda?</h2><p>Esta ação excluirá o cabeçalho e todos os {deletingSale.items.length} item(ns) desta venda.</p>{actionError && <p className="field-error" role="alert">{actionError}</p>}<div className="sale-delete-actions"><button className="quiet-button" type="button" onClick={() => setDeletingSale(null)} disabled={Boolean(deletingSaleId)}>Cancelar</button><button className="primary-button" type="button" onClick={() => void confirmDelete()} disabled={Boolean(deletingSaleId)}>{deletingSaleId ? 'Excluindo…' : 'Excluir venda'}</button></div></section></div>}
   </>

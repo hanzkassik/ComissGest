@@ -51,7 +51,7 @@ function App() {
                 <Route path="/empresas/:companyId/construtor-de-telas/:screenId" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/configuracoes" element={<ProtectedRoute><CompanySettingsPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/metas" element={<ProtectedRoute><GoalsPage /></ProtectedRoute>} />
-                <Route path="/empresas/:companyId/vendas" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
+                <Route path="/empresas/:companyId/vendas/*" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/acompanhamento-pedidos" element={<ProtectedRoute><OrderTrackingPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/status-vendas" element={<ProtectedRoute><SaleStatusesPage /></ProtectedRoute>} />
                 <Route path="/empresas/:companyId/produtos" element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
